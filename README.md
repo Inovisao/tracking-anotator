@@ -1,57 +1,70 @@
+# Ferramenta de Anotacao com ROI, Homografia e Tracking (YOLO)
 
-# Annotation Tool
+Interface Tkinter para validar e anotar deteccoes de multiplos videos em sequencia, aplicando ROI via 4 cliques, homografia (warpPerspective), tracking persistente (YOLO `model.track`) e salvando em formato COCO/MOT com `track_id`.
 
-Ferramenta interativa para validar detecoes da classe `car` usando um modelo YOLO treinado (`../best.pt`) e registrar resultados em um arquivo `annotations.coco.json` no formato COCO.
+## Funcionalidades
+- Percorre todos os videos em `videos/` (subpastas incluidas) e processa um por vez.
+- Selecao de ROI por 4 cliques; calcula homografia (M e M_inv) e aplica warpPerspective.
+- Detecta na imagem retificada, mapeia caixas de volta ao frame original e descarta deteccoes fora do ROI.
+- Tracking persistente via `model.track(persist=True)` com `track_id` global.
+- Anotacao manual com `track_id` exclusivo e reuso opcional por IoU.
+- Salva COCO/MOT em `output_dataset/annotations.coco.json`, frames em `output_dataset/images/` e homografias em `output_dataset/homography.json`.
+- Opcao de salvar frames retificados ou originais (`SAVE_RECTIFIED_FRAMES` em `main.py`).
 
 ## Requisitos
 - Python 3.9+
-- Dependencias instaladas no ambiente ativo:
-  - `ultralytics`
-  - `opencv-python`
-  - `numpy`
-  - `pillow`
-  - `tqdm` (opcional, mas recomendada se usar o pipeline de extracao de frames)
+- Tkinter disponivel (no Ubuntu: `sudo apt-get install python3-tk`)
+- Arquivo de pesos: `yolo11l.pt` na raiz do projeto
 
-> Observacao: `tkinter` ja acompanha a instalacao oficial do Python em Windows e macOS. No Linux pode ser necessario instalar `python3-tk` via gerenciador de pacotes.
+Instale as dependencias:
+```bash
+pip install -r requirements.txt
+```
 
 ## Estrutura esperada
 ```
-tracker/
-├── best.pt
-├── videos/
-│   └── ... video.mp4
-└── testa_tracking/
-    ├── main.py
-    └── README.md
+tracking-anotator/
+├── main.py
+├── main_test.py
+├── yolo11l.pt
+└── videos/
+    ├── POZ1_Nador_green/
+    │   └── video1.mp4
+    └── POZ2_DAB_green/
+        └── video2.avi
 ```
 
-## Como usar
-1. Ajuste `VIDEO_PATH` em `main.py` para apontar para o video a ser validado (caminho absoluto ou relativo).
-2. Certifique-se de que `best.pt` esteja no diretorio pai (`../best.pt` a partir de `testa_tracking`).
-3. Ative o ambiente virtual e execute:
-   ```bash
-   python main.py
-   ```
-4. Para cada frame processado com deteccoes (confidencia >= 90% para `car`), uma janela mostrara as caixas e a confianca.
+## Uso principal (anotacao)
+```bash
+python main.py
+```
+1) Ao abrir cada video, clique 4 pontos para definir o ROI (ordem livre; o codigo ordena).  
+2) Interface apos ROI:
+   - Enter: validar/salvar frame atual  
+   - Espaco: pular frame  
+   - K: liga/desliga modo anotacao manual  
+   - Botao esquerdo + arrastar: desenhar caixa manual (quando anotacao ON)  
+   - Botao "Remover anotacao": liga/desliga modo remocao (clique sobre uma caixa)  
+   - R: redefinir ROI (apenas se ainda nao salvou frames do video atual)  
+3) Ao fim de cada video, o proximo e aberto automaticamente.
 
-## Controles
-- `Validar (Enter)`: mantem as deteccoes exibidas e grava no `annotations.coco.json`.
-- `Rejeitar (Espaco)`: ignora o frame atual e segue para o proximo.
-- `Sair (Esc)`: encerra o processo; se houver anotacoes em memoria, sao persistidas antes de fechar.
+Saidas:
+- `output_dataset/images/{video}_frame_00001.jpg` (originais ou retificados, conforme `SAVE_RECTIFIED_FRAMES`)
+- `output_dataset/annotations.coco.json` (inclui `track_id` e `video`)
+- `output_dataset/homography.json` (lista de homografias por video)
 
-## Saida COCO
-O arquivo `annotations.coco.json` e atualizado continuamente com a estrutura:
-- `categories`: lista contendo a classe `car` (id 1).
-- `images`: um item por frame validado (`file_name`, `width`, `height`, `id`).
-- `annotations`: cada deteccao aprovada com `bbox` no formato `[x, y, largura, altura]`, `score`, `image_id` e `category_id`.
+## Teste rapido (sem UI)
+```bash
+python main_test.py
+```
+Roda 10 frames do primeiro video encontrado em `videos/` e imprime contagens/track_ids (nao abre a interface).
 
-Os campos `image_id` e `annotation_id` sao gerados sequencialmente e começam em 1. Cada frame aprovado recebe um nome padrao `VIDEO_FRAME_xxxxx.jpg` (sem gerar arquivo fisico; serve como referencia para integracoes posteriores).
+## Configuracoes uteis em `main.py`
+- `SAVE_RECTIFIED_FRAMES`: False (salva originais) ou True (salva warpPerspective).
+- `CONF_THRESHOLD`: limiar de confianca do YOLO.
+- `TARGET_CLASS`: classe alvo (padrao `car`).
 
-## Dicas
-- Se quiser trabalhar com outro limiar de confianca ou classe, ajuste `CONF_THRESHOLD` e `TARGET_CLASS` no topo do `main.py`.
-- Caso o video seja longo, considere interromper com `Esc`; o progresso ate o momento sera mantido no JSON.
-
-
-
-
-# Desenvolvido por Roberto Neto - 05/11/2025
+## Resolucao de problemas
+- Tkinter nao abre no WSL: precisa de X server e variavel DISPLAY; ou rode em ambiente grafico nativo.
+- Tkinter ausente no Linux: `sudo apt-get install python3-tk`.
+- Pesos nao encontrados: confirme `yolo11l.pt` na raiz ou ajuste `WEIGHTS_PATH` em `main.py`.
