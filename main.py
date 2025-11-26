@@ -189,6 +189,7 @@ class AnnotationTool:
         self.recent_tracks: List[dict] = []
         self.history_window = 5
         self.tracker_id_map: Dict[int, int] = {}  # internal_byte_id -> global_id
+        self.manual_id_var: Optional[tk.StringVar] = None
 
         self.saved_records: List[dict] = []
         self.review_idx: Optional[int] = None
@@ -198,6 +199,7 @@ class AnnotationTool:
         self.window = tk.Tk()
         self.window.title("Validador de deteccoes")
         self.window.protocol("WM_DELETE_WINDOW", self.on_quit)
+        self.manual_id_var = tk.StringVar(value="")
 
         self.info_var = tk.StringVar(value="Selecione 4 pontos do ROI.")
         self.info_label = tk.Label(self.window, textvariable=self.info_var, font=("Arial", 12))
@@ -253,6 +255,11 @@ class AnnotationTool:
 
         self.next_button = tk.Button(buttons_frame, text="Proximo frame >", command=self.on_next_saved, width=18)
         self.next_button.grid(row=1, column=1, padx=5, pady=(6, 0))
+
+        self.manual_id_label = tk.Label(buttons_frame, text="ID manual:")
+        self.manual_id_label.grid(row=1, column=2, padx=5, pady=(6, 0))
+        self.manual_id_entry = tk.Entry(buttons_frame, textvariable=self.manual_id_var, width=10)
+        self.manual_id_entry.grid(row=1, column=3, padx=5, pady=(6, 0))
 
         self.window.bind("<Return>", lambda event: self.on_accept())
         self.window.bind("<space>", lambda event: self.on_reject())
@@ -426,7 +433,8 @@ class AnnotationTool:
 
     def add_roi_point(self, x: int, y: int):
         """Registra ponto clicado para ROI."""
-        if len(self.roi_points) >= 4:
+        number_roi_points = int(input())
+        if len(self.roi_points) >= :
             return
         self.roi_points.append((x, y))
         if len(self.roi_points) == 4:
@@ -718,7 +726,9 @@ class AnnotationTool:
             print("[INFO] Caixa manual ignorada pois esta fora do ROI.")
             return
 
-        track_id = self.match_manual_to_history(bbox)
+        track_id = self.consume_manual_id_override()
+        if track_id is None:
+            track_id = self.match_manual_to_history(bbox)
         if track_id is None:
             track_id = self.new_track_id()
         warp_bbox = None
@@ -919,6 +929,24 @@ class AnnotationTool:
             self.recent_tracks.pop(0)
 
         return detections
+
+    def consume_manual_id_override(self) -> Optional[int]:
+        """Consome ID manual digitado pelo usuario (se valido)."""
+        raw = self.manual_id_var.get().strip()
+        if not raw:
+            return None
+        try:
+            value = int(raw)
+        except ValueError:
+            print("[AVISO] ID manual invalido, informe um numero inteiro.")
+            return None
+        if value <= 0:
+            print("[AVISO] ID manual deve ser > 0.")
+            return None
+        self.manual_id_var.set("")
+        if value >= self.global_track_counter:
+            self.global_track_counter = value + 1
+        return value
 
     def new_track_id(self) -> int:
         """Gera novo track_id sequencial e inicia historico."""
