@@ -205,9 +205,6 @@ class AnnotationTool:
         self.info_label = tk.Label(self.window, textvariable=self.info_var, font=("Arial", 12))
         self.info_label.pack(pady=10)
 
-        self.canvas = tk.Canvas(self.window, bg="black", highlightthickness=0)
-        self.canvas.pack()
-
         buttons_frame = tk.Frame(self.window)
         buttons_frame.pack(pady=10)
 
@@ -270,6 +267,9 @@ class AnnotationTool:
         self.window.bind("R", lambda event: self.reset_roi())
         self.window.bind("<Left>", lambda event: self.on_prev_saved())
         self.window.bind("<Right>", lambda event: self.on_next_saved())
+
+        self.canvas = tk.Canvas(self.window, bg="black", highlightthickness=0)
+        self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=5)
 
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
@@ -433,10 +433,10 @@ class AnnotationTool:
 
     def add_roi_point(self, x: int, y: int):
         """Registra ponto clicado para ROI."""
-        number_roi_points = int(input())
-        if len(self.roi_points) >= :
+        if len(self.roi_points) >= 4:
             return
-        self.roi_points.append((x, y))
+        # permite ROI fora das bordas sem clamp
+        self.roi_points.append((float(x), float(y)))
         if len(self.roi_points) == 4:
             self.compute_homography()
         self.update_display()
@@ -495,11 +495,26 @@ class AnnotationTool:
         return clip_bbox(xs.min(), ys.min(), xs.max(), ys.max(), width, height)
 
     def is_inside_roi(self, bbox: np.ndarray) -> bool:
-        """Verifica se o centro da bbox esta dentro do ROI."""
+        """Verifica se ao menos 80% da bbox esta dentro do ROI."""
         if self.roi_polygon is None:
             return True
-        cx, cy = bbox_center(bbox)
-        return cv2.pointPolygonTest(self.roi_polygon, (float(cx), float(cy)), False) >= 0
+        # calcula interseccao poligono x bbox
+        x1, y1, x2, y2 = bbox
+        poly = self.roi_polygon.astype(np.float32)
+        box_poly = np.array(
+            [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+            dtype=np.float32,
+        )
+        # usa cv2.intersectConvexConvex para obter area da intersecao
+        try:
+            area_int, inter_poly = cv2.intersectConvexConvex(poly, box_poly)
+        except Exception:
+            inter_poly = None
+            area_int = 0.0
+        box_area = max(0.0, (x2 - x1)) * max(0.0, (y2 - y1))
+        if box_area == 0:
+            return False
+        return (area_int / box_area) >= 0.8
 
     def save_homography_file(self):
         """Persiste homografia em disco (lista para multiplos videos)."""
@@ -551,11 +566,12 @@ class AnnotationTool:
             is_closed = len(self.roi_points) == 4
             cv2.polylines(annotated, [pts], isClosed=is_closed, color=(255, 0, 0), thickness=2)
             for idx, (x, y) in enumerate(self.roi_points):
-                cv2.circle(annotated, (x, y), 4, (0, 0, 255), -1)
+                xi, yi = int(round(x)), int(round(y))
+                cv2.circle(annotated, (xi, yi), 4, (0, 0, 255), -1)
                 cv2.putText(
                     annotated,
                     str(idx + 1),
-                    (x + 4, max(0, y - 6)),
+                    (xi + 4, yi - 6),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.5,
                     (0, 0, 255),
@@ -576,8 +592,37 @@ class AnnotationTool:
         self.tk_image = ImageTk.PhotoImage(image=pil_image)
 
         self.canvas.delete("all")
-        self.canvas.config(width=width, height=height)
-        self.canvas_image_id = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+        EXPAND = 500
+        canvas_w = width + EXPAND
+        canvas_h = height + EXPAND
+        self.offset_x = (canvas_w - width) // 2
+        self.offset_y = (canvas_h - height) // 2
+        self.canvas.config(width=canvas_w, height=canvas_h)
+        self.canvas_image_id = self.canvas.create_image(self.offset_x, self.offset_y, anchor=tk.NW, image=self.tk_image)
+
+        if self.roi_points:
+            shifted = [(x + self.offset_x, y + self.offset_y) for (x, y) in self.roi_points]
+            if len(shifted) >= 2:
+                for i in range(len(shifted) - 1):
+                    self.canvas.create_line(
+                        shifted[i][0],
+                        shifted[i][1],
+                        shifted[i + 1][0],
+                        shifted[i + 1][1],
+                        fill="blue",
+                        width=2,
+                    )
+                if len(shifted) == 4:
+                    self.canvas.create_line(
+                        shifted[-1][0],
+                        shifted[-1][1],
+                        shifted[0][0],
+                        shifted[0][1],
+                        fill="blue",
+                        width=2,
+                    )
+            for sx, sy in shifted:
+                self.canvas.create_oval(sx - 3, sy - 3, sx + 3, sy + 3, fill="red", outline="")
 
         if self.drawing_rect_id is not None and self.drawing_start is not None:
             x, y = self.drawing_start
@@ -652,18 +697,21 @@ class AnnotationTool:
         if self.current_frame is None:
             return
 
+        x = event.x - self.offset_x
+        y = event.y - self.offset_y
+
         if not self.roi_defined:
-            self.add_roi_point(event.x, event.y)
+            self.add_roi_point(x, y)
             return
 
         if self.remove_mode:
-            self.remove_annotation_at(event.x, event.y)
+            self.remove_annotation_at(x, y)
             return
 
         if not self.annotation_mode:
             return
 
-        self.drawing_start = (event.x, event.y)
+        self.drawing_start = (x, y)
         self.drawing_rect_id = self.canvas.create_rectangle(
             event.x,
             event.y,
@@ -691,8 +739,8 @@ class AnnotationTool:
             )
         self.canvas.coords(
             self.drawing_rect_id,
-            self.drawing_start[0],
-            self.drawing_start[1],
+            self.drawing_start[0] + self.offset_x,
+            self.drawing_start[1] + self.offset_y,
             event.x,
             event.y,
         )
@@ -703,7 +751,8 @@ class AnnotationTool:
             return
 
         start_x, start_y = self.drawing_start
-        end_x, end_y = event.x, event.y
+        end_x = event.x - self.offset_x
+        end_y = event.y - self.offset_y
 
         if self.drawing_rect_id is not None:
             self.canvas.delete(self.drawing_rect_id)
@@ -711,12 +760,8 @@ class AnnotationTool:
 
         self.drawing_start = None
 
-        if self.last_frame_shape is None:
-            return
-
-        width, height = self.last_frame_shape
-        x1, x2 = sorted((max(0, min(width - 1, start_x)), max(0, min(width - 1, end_x))))
-        y1, y2 = sorted((max(0, min(height - 1, start_y)), max(0, min(height - 1, end_y))))
+        x1, x2 = sorted((start_x, end_x))
+        y1, y2 = sorted((start_y, end_y))
 
         if abs(x2 - x1) < 3 or abs(y2 - y1) < 3:
             return
@@ -962,26 +1007,23 @@ class AnnotationTool:
         return self.tracker_id_map[internal_id]
 
     def match_manual_to_history(self, manual_bbox: np.ndarray) -> Optional[int]:
-        """Associa anotacao manual com prioridade ao frame atual e, em seguida, ultimos frames."""
-        best_id = None
-        best_score = 0.0
+        """Associa anotacao manual priorizando deteccoes do frame atual, depois historico recente."""
         cx1, cy1 = bbox_center(manual_bbox)
 
+        # 1) prioridade absoluta: deteccoes do frame atual
         for det in self.current_detections:
             iou = bbox_iou(manual_bbox, det.original_bbox)
-            cx2, cy2 = bbox_center(det.original_bbox)
-            dist = np.hypot(cx1 - cx2, cy1 - cy2)
-            combined = iou - 0.001 * dist
-            if combined > best_score and combined > 0.4:
-                best_score = combined
-                best_id = det.track_id
+            if iou > 0.4:
+                return det.track_id
 
-        if best_id is not None:
-            return best_id
-
-        for frame_data in self.recent_tracks:
+        # 2) fallback: frames anteriores
+        best_id = None
+        best_score = 0.0
+        for frame_data in reversed(self.recent_tracks):
             for tr in frame_data.get("tracks", []):
                 iou = bbox_iou(manual_bbox, tr["bbox"])
+                if iou < 0.1:
+                    continue
                 cx2, cy2 = bbox_center(tr["bbox"])
                 dist = np.hypot(cx1 - cx2, cy1 - cy2)
                 combined = iou - 0.001 * dist
@@ -989,8 +1031,9 @@ class AnnotationTool:
                     best_score = combined
                     best_id = tr["id"]
 
-        if best_score > 0.3:
+        if best_score > 0.2:
             return best_id
+
         return None
 
     # ===================== CONTROLE DE FLUXO =====================
