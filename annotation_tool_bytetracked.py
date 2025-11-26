@@ -12,7 +12,6 @@ import tkinter as tk
 from PIL import Image, ImageTk
 from ultralytics import YOLO
 from tracker.byte_tracker import BYTETracker
-import signal
 
 # ====== CONFIGURACOES ======
 VIDEOS_ROOT = Path(__file__).resolve().parent / "videos"
@@ -41,18 +40,6 @@ class Detection:
     category_id: int
     track_id: int
     source: str  # "model" ou "manual"
-
-
-@dataclass
-class ByteTrackerArgs:
-    """Argumentos para inicializar o BYTETracker (compatibilidade YOLOX)."""
-
-    track_thresh: float = 0.3
-    track_buffer: int = 30
-    match_thresh: float = 0.8
-    aspect_ratio_thresh: float = 1.6
-    min_box_area: float = 10
-    mot20: bool = False
 
 
 def order_points(pts: np.ndarray) -> np.ndarray:
@@ -144,9 +131,7 @@ class AnnotationTool:
         OUTPUT_IMAGES_DIR.mkdir(exist_ok=True)
 
         self.model = YOLO(str(WEIGHTS_PATH))
-        self.default_tracker_args = ByteTrackerArgs()
-        self.frame_rate = 30
-        self.bytetracker = BYTETracker(self.default_tracker_args, frame_rate=self.frame_rate)
+        self.bytetracker = BYTETracker(track_thresh=0.3, track_buffer=30, match_thresh=0.8, frame_rate=30)
         self.cap: Optional[cv2.VideoCapture] = None
 
         self.video_name = ""
@@ -184,16 +169,13 @@ class AnnotationTool:
         self.dest_points: Optional[np.ndarray] = None
 
         self.manual_track_memory: Dict[int, Dict[str, np.ndarray]] = {}
-        self.global_track_counter = 1
-        self.track_history: Dict[int, List[dict]] = {}
-        self.recent_tracks: List[dict] = []
-        self.history_window = 5
-        self.tracker_id_map: Dict[int, int] = {}  # internal_byte_id -> global_id
+        self.next_track_id = 1
+        self.used_track_ids = set()
+        self.track_id_offset = 0
 
         self.saved_records: List[dict] = []
         self.review_idx: Optional[int] = None
         self.live_snapshot: Optional[dict] = None
-        self.closed = False
 
         self.window = tk.Tk()
         self.window.title("Validador de deteccoes")
@@ -269,7 +251,6 @@ class AnnotationTool:
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
 
         self.load_existing_annotations()
-        self.register_signal_handlers()
         self.start_video(self.current_video_index)
 
     # ===================== CONTROLE DE VIDEOS =====================
@@ -290,27 +271,14 @@ class AnnotationTool:
             self.categories = cats
         max_ann_id = max((ann.get("id", 0) for ann in self.annotations), default=0)
         max_img_id = max((img.get("id", 0) for img in self.images), default=0)
+        max_track = max((ann.get("track_id", 0) for ann in self.annotations), default=0)
         self.annotation_id = max_ann_id + 1
         self.image_id = max_img_id + 1
-        max_track = max((ann.get("track_id", 0) for ann in self.annotations), default=0)
-        self.global_track_counter = max(max_track + 1, 1)
+        self.next_track_id = max(self.next_track_id, max_track + 1)
         print(
             f"[INFO] Anotacoes carregadas. imagens={len(self.images)}, "
             f"anotacoes={len(self.annotations)}, prox_image_id={self.image_id}, prox_annotation_id={self.annotation_id}"
         )
-
-    def register_signal_handlers(self):
-        """Garante que a janela feche se o processo receber SIGINT/SIGTERM."""
-        def handler(signum, frame):
-            _ = frame  # unused
-            print(f"[INFO] Encerrando por sinal {signum}.")
-            self.finish_processing("Processo encerrado pelo sistema.")
-
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
-                signal.signal(sig, handler)
-            except Exception:  # pylint: disable=broad-except
-                pass
 
     def start_video(self, index: int):
         """Abre o video indicado e prepara para anotacao."""
@@ -341,8 +309,7 @@ class AnnotationTool:
         self.saved_records.clear()
         self.review_idx = None
         self.live_snapshot = None
-        self.recent_tracks.clear()
-        self.tracker_id_map.clear()
+        self.track_id_offset = self.next_track_id
         last_frame_saved = 0
         saved_for_video = [img for img in self.images if img.get("video") in (str(self.video_path), self.video_name)]
         if saved_for_video:
@@ -370,9 +337,7 @@ class AnnotationTool:
             print(f"[ERRO] Falha ao abrir video: {self.video_path}")
             self.start_video(index + 1)
             return
-        fps = self.cap.get(cv2.CAP_PROP_FPS)
-        self.frame_rate = int(fps) if fps and fps > 1 else 30
-        self.bytetracker = BYTETracker(ByteTrackerArgs(), frame_rate=self.frame_rate)
+        self.bytetracker = BYTETracker(track_thresh=0.3, track_buffer=30, match_thresh=0.8, frame_rate=30)
         if self.frame_index > 0:
             try:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, float(self.frame_index))
@@ -718,9 +683,7 @@ class AnnotationTool:
             print("[INFO] Caixa manual ignorada pois esta fora do ROI.")
             return
 
-        track_id = self.match_manual_to_history(bbox)
-        if track_id is None:
-            track_id = self.new_track_id()
+        track_id = self.assign_manual_track_id(bbox)
         warp_bbox = None
         if self.homography_matrix is not None and self.warp_size is not None:
             warp_bbox = self.project_bbox(bbox, self.homography_matrix, self.warp_size[0], self.warp_size[1])
@@ -734,11 +697,6 @@ class AnnotationTool:
             source="manual",
         )
         self.manual_detections.append(manual_det)
-        self.track_history.setdefault(track_id, []).append({"frame": self.frame_index, "bbox": bbox.tolist()})
-        # garante que anotacao manual tambem alimente o historico recente
-        self.recent_tracks.append({"frame": self.frame_index, "tracks": [{"id": track_id, "bbox": bbox.copy()}]})
-        if len(self.recent_tracks) > self.history_window:
-            self.recent_tracks.pop(0)
         self.update_display()
 
     def remove_annotation_at(self, x: int, y: int) -> bool:
@@ -872,13 +830,10 @@ class AnnotationTool:
             dets.append(xyxy)
             scores.append(conf)
 
-        img_info = (img_height, img_width)
-        img_size = (img_height, img_width)
-
         # 2) Se nao ha deteccoes, apenas atualiza tracker
         if not dets:
             empty = np.empty((0, 5), dtype=np.float32)
-            self.bytetracker.update(empty, img_info, img_size)
+            self.bytetracker.update(empty, original_frame)
             return detections
 
         detections_bt = np.concatenate(
@@ -886,13 +841,12 @@ class AnnotationTool:
         )
 
         # 3) ByteTrack
-        tracks = self.bytetracker.update(detections_bt, img_info, img_size)
+        tracks = self.bytetracker.update(detections_bt, original_frame)
 
         # 4) Converter para Detection, aplicar ROI/homografia
         for track in tracks:
             tlbr = track.tlbr
-            internal_id = int(track.track_id)
-            track_id = self.get_global_id(internal_id)
+            track_id = int(track.track_id) + int(self.track_id_offset)
             score = float(track.score)
             original_box = clip_bbox(tlbr[0], tlbr[1], tlbr[2], tlbr[3], img_width, img_height)
             if not self.is_inside_roi(original_box):
@@ -900,7 +854,7 @@ class AnnotationTool:
             warp_box = None
             if self.homography_matrix is not None and self.warp_size is not None:
                 warp_box = self.project_bbox(original_box, self.homography_matrix, self.warp_size[0], self.warp_size[1])
-            self.track_history.setdefault(track_id, []).append({"frame": self.frame_index, "bbox": original_box.tolist()})
+            self.register_track_id(track_id)
             detections.append(
                 Detection(
                     original_bbox=original_box,
@@ -912,58 +866,36 @@ class AnnotationTool:
                 )
             )
 
-        # atualiza historico recente imediatamente
-        frame_tracks = [{"id": det.track_id, "bbox": det.original_bbox.copy()} for det in detections]
-        self.recent_tracks.append({"frame": self.frame_index, "tracks": frame_tracks})
-        if len(self.recent_tracks) > self.history_window:
-            self.recent_tracks.pop(0)
-
         return detections
 
-    def new_track_id(self) -> int:
-        """Gera novo track_id sequencial e inicia historico."""
-        tid = self.global_track_counter
-        self.global_track_counter += 1
-        self.track_history[tid] = []
-        return tid
+    def allocate_track_id(self) -> int:
+        """Gera novo track_id unico."""
+        track_id = self.next_track_id
+        self.next_track_id += 1
+        return track_id
 
-    def get_global_id(self, internal_id: int) -> int:
-        """Mapeia ID interno do ByteTrack para ID global fixo e sequencial."""
-        if internal_id not in self.tracker_id_map:
-            self.tracker_id_map[internal_id] = self.new_track_id()
-        return self.tracker_id_map[internal_id]
+    def register_track_id(self, track_id: int):
+        """Mantem contador consistente com ids vistos."""
+        self.used_track_ids.add(track_id)
+        if track_id >= self.next_track_id:
+            self.next_track_id = track_id + 1
 
-    def match_manual_to_history(self, manual_bbox: np.ndarray) -> Optional[int]:
-        """Associa anotacao manual com prioridade ao frame atual e, em seguida, ultimos frames."""
-        best_id = None
-        best_score = 0.0
-        cx1, cy1 = bbox_center(manual_bbox)
+    def assign_manual_track_id(self, bbox: np.ndarray) -> int:
+        """Tenta reutilizar track_id manual com maior IoU; senao cria novo."""
+        best_track = None
+        best_iou = 0.0
+        for track_id, info in self.manual_track_memory.items():
+            iou = bbox_iou(bbox, info["bbox"])
+            if iou > best_iou and iou >= MANUAL_IOU_THRESHOLD:
+                best_iou = iou
+                best_track = track_id
 
-        for det in self.current_detections:
-            iou = bbox_iou(manual_bbox, det.original_bbox)
-            cx2, cy2 = bbox_center(det.original_bbox)
-            dist = np.hypot(cx1 - cx2, cy1 - cy2)
-            combined = iou - 0.001 * dist
-            if combined > best_score and combined > 0.4:
-                best_score = combined
-                best_id = det.track_id
-
-        if best_id is not None:
-            return best_id
-
-        for frame_data in self.recent_tracks:
-            for tr in frame_data.get("tracks", []):
-                iou = bbox_iou(manual_bbox, tr["bbox"])
-                cx2, cy2 = bbox_center(tr["bbox"])
-                dist = np.hypot(cx1 - cx2, cy1 - cy2)
-                combined = iou - 0.001 * dist
-                if combined > best_score:
-                    best_score = combined
-                    best_id = tr["id"]
-
-        if best_score > 0.3:
-            return best_id
-        return None
+        if best_track is None:
+            track_id = self.allocate_track_id()
+        else:
+            track_id = best_track
+        self.register_track_id(track_id)
+        return track_id
 
     # ===================== CONTROLE DE FLUXO =====================
     def on_accept(self):
@@ -1235,9 +1167,6 @@ class AnnotationTool:
 
     def finish_processing(self, message: str):
         """Libera recursos e encerra a interface."""
-        if self.closed:
-            return
-        self.closed = True
         if self.cap is not None:
             self.cap.release()
             self.cap = None
@@ -1253,13 +1182,7 @@ class AnnotationTool:
             with open(HOMOGRAPHY_PATH, "w", encoding="utf-8") as f:
                 json.dump(self.homographies, f, indent=4, ensure_ascii=False)
         self.info_var.set(message)
-        try:
-            self.window.after(500, self.window.destroy)
-        except Exception:  # pylint: disable=broad-except
-            try:
-                self.window.destroy()
-            except Exception:
-                pass
+        self.window.after(1500, self.window.destroy)
 
     def run(self):
         """Inicia o loop principal da interface Tkinter."""
@@ -1267,20 +1190,13 @@ class AnnotationTool:
 
 
 def main():
-    tool = None
     try:
         tool = AnnotationTool()
-        tool.run()
-        return 0
-    except KeyboardInterrupt:
-        if tool is not None:
-            tool.finish_processing("Processo interrompido.")
-        return 1
     except Exception as exc:  # pylint: disable=broad-except
-        if tool is not None:
-            tool.finish_processing(f"Erro: {exc}")
         print(f"Erro: {exc}", file=sys.stderr)
         return 1
+    tool.run()
+    return 0
 
 
 if __name__ == "__main__":

@@ -2,6 +2,9 @@
 
 Interface Tkinter para validar e anotar deteccoes de multiplos videos em sequencia, aplicando ROI via 4 cliques, homografia (warpPerspective), tracking persistente (YOLO `model.track`) e salvando em formato COCO/MOT com `track_id`.
 
+
+Bytetracker retirado de: https://github.com/FoundationVision/ByteTrack
+
 ## Funcionalidades
 - Percorre todos os videos em `videos/` (subpastas incluidas) e processa um por vez.
 - Selecao de ROI por 4 cliques; calcula homografia (M e M_inv) e aplica warpPerspective.
