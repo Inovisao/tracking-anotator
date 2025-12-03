@@ -2,8 +2,8 @@ ultralytics
 opencv-python
 pillow
 numpy
+cmake
 lap
 yolox
-bytetrack
-lap
 cython_bbox
+scipy

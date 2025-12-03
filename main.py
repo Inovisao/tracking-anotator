@@ -495,26 +495,32 @@ class AnnotationTool:
         return clip_bbox(xs.min(), ys.min(), xs.max(), ys.max(), width, height)
 
     def is_inside_roi(self, bbox: np.ndarray) -> bool:
-        """Verifica se ao menos 80% da bbox esta dentro do ROI."""
+        """Verifica se a bbox está majoritariamente dentro do ROI usando pointPolygonTest (robusto)."""
         if self.roi_polygon is None:
             return True
-        # calcula interseccao poligono x bbox
+        
         x1, y1, x2, y2 = bbox
-        poly = self.roi_polygon.astype(np.float32)
-        box_poly = np.array(
-            [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+        box_pts = np.array(
+            [
+                [x1, y1],
+                [x2, y1],
+                [x2, y2],
+                [x1, y2],
+            ],
             dtype=np.float32,
         )
-        # usa cv2.intersectConvexConvex para obter area da intersecao
-        try:
-            area_int, inter_poly = cv2.intersectConvexConvex(poly, box_poly)
-        except Exception:
-            inter_poly = None
-            area_int = 0.0
-        box_area = max(0.0, (x2 - x1)) * max(0.0, (y2 - y1))
-        if box_area == 0:
-            return False
-        return (area_int / box_area) >= 0.8
+        
+        poly = self.roi_polygon.astype(np.float32)
+
+        inside_count = 0
+        for (px, py) in box_pts:
+            # retorna >0 se dentro, 0 se na borda, <0 se fora
+            if cv2.pointPolygonTest(poly, (px, py), False) >= 0:
+                inside_count += 1
+
+        # critério robusto: 3 ou 4 vértices da bbox dentro do ROI
+        return inside_count >= 3
+
 
     def save_homography_file(self):
         """Persiste homografia em disco (lista para multiplos videos)."""
