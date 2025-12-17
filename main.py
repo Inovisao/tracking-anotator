@@ -431,10 +431,11 @@ class AnnotationTool:
 
     # ===================== ROI & HOMOGRAFIA =====================
     def reset_roi(self):
-        """Permite redefinir ROI (desde que o video atual nao tenha frames salvos)."""
+        """Permite redefinir ROI; nao altera anotacoes ja salvas."""
         if self.frames_saved_in_current_video > 0:
-            print("[AVISO] Nao e possivel redefinir ROI apos salvar frames do video atual.")
-            return
+            print(
+                "[AVISO] ROI redefinido mesmo com frames salvos; anotacoes ja salvas nao serao alteradas."
+            )
         self.roi_points = []
         self.roi_defined = False
         self.homography_matrix = None

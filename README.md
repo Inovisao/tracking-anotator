@@ -55,7 +55,7 @@ python main.py
      - K: liga/desliga modo anotacao manual  
      - Botao esquerdo + arrastar: desenhar caixa manual (quando anotacao ON)  
      - Botao "Remover anotacao": liga/desliga modo remocao (clique sobre uma caixa)  
-     - R: redefinir ROI (apenas se ainda nao salvou frames do video atual)  
+     - R: redefinir ROI (nao altera anotacoes ja salvas do video atual)  
   3. Ao fim de cada video, o proximo e aberto automaticamente.
 
 - Teste rapido (sem UI):
