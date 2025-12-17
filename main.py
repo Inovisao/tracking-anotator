@@ -41,6 +41,7 @@ class Detection:
     category_id: int
     track_id: int
     source: str  # "model" ou "manual"
+    internal_id: Optional[int] = None
 
 
 @dataclass
@@ -1041,6 +1042,7 @@ class AnnotationTool:
                     category_id=1,
                     track_id=track_id,
                     source="model",
+                    internal_id=internal_id,
                 )
             )
 
@@ -1167,6 +1169,7 @@ class AnnotationTool:
             category_id=det.category_id,
             track_id=det.track_id,
             source=det.source,
+            internal_id=det.internal_id,
         )
 
     def append_saved_record(self, detections: List[Detection], image_id: int, file_name: str):
@@ -1221,6 +1224,7 @@ class AnnotationTool:
                     category_id=int(ann.get("category_id", 1)),
                     track_id=int(ann.get("track_id", -1)),
                     source=ann.get("source", "manual"),
+                    internal_id=None,
                 )
             )
         return dets
@@ -1367,6 +1371,8 @@ class AnnotationTool:
             print("[INFO] ID selecionado ja e o mesmo.")
             return
         det.track_id = new_id
+        if det.source == "model" and det.internal_id is not None:
+            self.tracker_id_map[det.internal_id] = new_id
         self.update_track_history_for_edit(old_id, new_id, det.original_bbox)
         self.update_recent_tracks_for_edit(old_id, new_id, det.original_bbox)
         if det.source == "manual":
