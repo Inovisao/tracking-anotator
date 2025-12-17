@@ -190,6 +190,10 @@ class AnnotationTool:
         self.history_window = 5
         self.tracker_id_map: Dict[int, int] = {}  # internal_byte_id -> global_id
         self.manual_id_var: Optional[tk.StringVar] = None
+        self.edit_id_mode = False
+        self.selected_detection: Optional[Tuple[str, int]] = None
+        self.offset_x = 0
+        self.offset_y = 0
 
         self.saved_records: List[dict] = []
         self.review_idx: Optional[int] = None
@@ -257,6 +261,14 @@ class AnnotationTool:
         self.manual_id_label.grid(row=1, column=2, padx=5, pady=(6, 0))
         self.manual_id_entry = tk.Entry(buttons_frame, textvariable=self.manual_id_var, width=10)
         self.manual_id_entry.grid(row=1, column=3, padx=5, pady=(6, 0))
+        self.apply_id_button = tk.Button(
+            buttons_frame, text="Aplicar ID", command=self.apply_manual_id_to_selection, width=12, state=tk.DISABLED
+        )
+        self.apply_id_button.grid(row=1, column=4, padx=5, pady=(6, 0))
+        self.edit_id_button = tk.Button(
+            buttons_frame, text="Editar ID OFF (E)", command=self.toggle_edit_id_mode, width=16, state=tk.DISABLED
+        )
+        self.edit_id_button.grid(row=1, column=5, padx=5, pady=(6, 0))
 
         self.window.bind("<Return>", lambda event: self.on_accept())
         self.window.bind("<space>", lambda event: self.on_reject())
@@ -265,6 +277,8 @@ class AnnotationTool:
         self.window.bind("K", lambda event: self.toggle_annotation_mode())
         self.window.bind("r", lambda event: self.reset_roi())
         self.window.bind("R", lambda event: self.reset_roi())
+        self.window.bind("e", lambda event: self.toggle_edit_id_mode())
+        self.window.bind("E", lambda event: self.toggle_edit_id_mode())
         self.window.bind("<Left>", lambda event: self.on_prev_saved())
         self.window.bind("<Right>", lambda event: self.on_next_saved())
 
@@ -350,6 +364,8 @@ class AnnotationTool:
         self.live_snapshot = None
         self.recent_tracks.clear()
         self.tracker_id_map.clear()
+        self.edit_id_mode = False
+        self.selected_detection = None
         last_frame_saved = 0
         saved_for_video = [img for img in self.images if img.get("video") in (str(self.video_path), self.video_name)]
         if saved_for_video:
@@ -371,6 +387,7 @@ class AnnotationTool:
         self.current_rectified_frame = None
         self.current_detections = []
         self.manual_detections = []
+        self.selected_detection = None
 
         self.cap = cv2.VideoCapture(str(self.video_path))
         if not self.cap.isOpened():
@@ -427,6 +444,8 @@ class AnnotationTool:
         self.current_rectified_frame = None
         self.current_detections = []
         self.manual_detections = []
+        self.edit_id_mode = False
+        self.selected_detection = None
         self.disable_controls_for_roi()
         self.info_var.set("Selecione 4 pontos do ROI.")
         self.update_display()
@@ -551,6 +570,8 @@ class AnnotationTool:
         self.reject_button.config(state=tk.NORMAL)
         self.annotation_button.config(state=tk.NORMAL)
         self.remove_button.config(state=tk.NORMAL)
+        self.apply_id_button.config(state=tk.NORMAL)
+        self.edit_id_button.config(state=tk.NORMAL)
         self.info_var.set(self.build_status_message())
 
     def disable_controls_for_roi(self):
@@ -559,6 +580,8 @@ class AnnotationTool:
         self.reject_button.config(state=tk.DISABLED)
         self.annotation_button.config(state=tk.DISABLED)
         self.remove_button.config(state=tk.DISABLED)
+        self.apply_id_button.config(state=tk.DISABLED)
+        self.edit_id_button.config(state=tk.DISABLED)
 
     def update_display(self):
         """Renderiza o frame com ROI, deteccoes e anotacoes manuais."""
@@ -584,13 +607,12 @@ class AnnotationTool:
                     1,
                 )
 
-        detections_to_draw: List[Detection] = []
-        if SHOW_MODEL_DETECTIONS:
-            detections_to_draw.extend(self.current_detections)
-        if SHOW_MANUAL_DETECTIONS:
-            detections_to_draw.extend(self.manual_detections)
+        self.validate_selected_detection()
 
-        annotated = self.draw_detections(annotated, detections_to_draw)
+        if SHOW_MODEL_DETECTIONS:
+            annotated = self.draw_detections(annotated, self.current_detections, "model")
+        if SHOW_MANUAL_DETECTIONS:
+            annotated = self.draw_detections(annotated, self.manual_detections, "manual")
 
         height, width = annotated.shape[:2]
         rgb_frame = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
@@ -639,17 +661,23 @@ class AnnotationTool:
         self.last_frame_shape = (width, height)
         self.update_status()
 
-    def draw_detections(self, frame: np.ndarray, detections: List[Detection]):
+    def draw_detections(self, frame: np.ndarray, detections: List[Detection], source_tag: str):
         """Desenha as caixas detectadas no frame visivel."""
-        for det in detections:
+        for idx, det in enumerate(detections):
             x1, y1, x2, y2 = det.original_bbox.astype(int)
             color = (0, 255, 0) if det.source == "model" else (0, 255, 255)
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            thickness = 2
+            if self.selected_detection == (source_tag, idx):
+                color = (0, 0, 255)
+                thickness = 3
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
             label = f"ID {det.track_id}"
             if det.source == "model":
                 label += f" {det.confidence * 100:.1f}%"
             else:
                 label += " manual"
+            if self.selected_detection == (source_tag, idx):
+                label = f"[selecionada] {label}"
             cv2.putText(frame, label, (x1, max(y1 - 8, 0)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         return frame
 
@@ -674,6 +702,10 @@ class AnnotationTool:
             base += f" | ROI: {len(self.roi_points)}/4 pontos"
         base += f" | Modo anotacao: {'ON' if self.annotation_mode else 'OFF'}"
         base += f" | Remover anotacao: {'ON' if self.remove_mode else 'OFF'}"
+        base += f" | Editar ID: {'ON' if self.edit_id_mode else 'OFF'}"
+        selected = self.get_selected_detection()
+        if selected is not None:
+            base += f" | Selecionada ID {selected.track_id}"
         if self.manual_detections:
             base += f" | BBoxes manuais: {len(self.manual_detections)}"
         base += f" | Salvando frames {'retificados' if SAVE_RECTIFIED_FRAMES else 'originais'}"
@@ -684,6 +716,7 @@ class AnnotationTool:
         self.info_var.set(self.build_status_message())
         self.update_annotation_button()
         self.update_remove_button()
+        self.update_edit_id_button()
 
     def update_annotation_button(self):
         """Atualiza o texto do botao de modo de anotacao."""
@@ -697,6 +730,12 @@ class AnnotationTool:
             estado = "ON" if self.remove_mode else "OFF"
             self.remove_button.config(text=f"Remover anotacao {estado}")
 
+    def update_edit_id_button(self):
+        """Atualiza o texto do botao de edicao de ID."""
+        if hasattr(self, "edit_id_button"):
+            estado = "ON" if self.edit_id_mode else "OFF"
+            self.edit_id_button.config(text=f"Editar ID {estado} (E)")
+
     # ===================== EVENTOS DE MOUSE =====================
     def on_mouse_down(self, event):
         """Inicia ROI ou desenho de anotacao manual."""
@@ -708,6 +747,10 @@ class AnnotationTool:
 
         if not self.roi_defined:
             self.add_roi_point(x, y)
+            return
+
+        if self.edit_id_mode:
+            self.select_detection_at(x, y)
             return
 
         if self.remove_mode:
@@ -809,6 +852,7 @@ class AnnotationTool:
             x1, y1, x2, y2 = det.original_bbox
             if x1 <= x <= x2 and y1 <= y <= y2:
                 del self.manual_detections[idx]
+                self.selected_detection = None
                 print("[INFO] Caixa manual removida.")
                 self.update_display()
                 return True
@@ -818,6 +862,7 @@ class AnnotationTool:
             x1, y1, x2, y2 = det.original_bbox
             if x1 <= x <= x2 and y1 <= y <= y2:
                 del self.current_detections[idx]
+                self.selected_detection = None
                 print("[INFO] Deteccao removida.")
                 self.update_display()
                 return True
@@ -832,6 +877,9 @@ class AnnotationTool:
             return
 
         self.annotation_mode = not self.annotation_mode
+        if self.annotation_mode and self.edit_id_mode:
+            self.edit_id_mode = False
+            self.selected_detection = None
         if self.annotation_mode and self.remove_mode:
             self.remove_mode = False
 
@@ -850,6 +898,9 @@ class AnnotationTool:
             return
 
         self.remove_mode = not self.remove_mode
+        if self.remove_mode and self.edit_id_mode:
+            self.edit_id_mode = False
+            self.selected_detection = None
         if self.remove_mode:
             if self.annotation_mode:
                 self.annotation_mode = False
@@ -862,6 +913,25 @@ class AnnotationTool:
                 self.annotation_mode = True
         estado_msg = "ativado" if self.remove_mode else "desativado"
         print(f"[INFO] Modo remover anotacao {estado_msg}. Clique sobre uma caixa para remove-la.")
+        self.update_status()
+
+    def toggle_edit_id_mode(self):
+        """Alterna o modo de selecao/edicao de track_id."""
+        if self.current_frame is None or not self.roi_defined:
+            return
+
+        self.edit_id_mode = not self.edit_id_mode
+        if self.edit_id_mode:
+            if self.annotation_mode:
+                self.annotation_mode = False
+            if self.remove_mode:
+                self.remove_mode = False
+        else:
+            if not self.annotation_mode:
+                self.annotation_mode = True
+            self.selected_detection = None
+        estado_msg = "ativado" if self.edit_id_mode else "desativado"
+        print(f"[INFO] Modo editar ID {estado_msg}. Clique em uma caixa para selecionar.")
         self.update_status()
 
     # ===================== PROCESSAMENTO DE FRAMES =====================
@@ -878,6 +948,7 @@ class AnnotationTool:
         self.current_rectified_frame = self.warp_frame(frame)
         self.current_detections = self.run_model(frame)
         self.manual_detections = []
+        self.selected_detection = None
         self.annotation_mode = True
         self.remove_mode = False
         self.drawing_start = None
@@ -1177,6 +1248,7 @@ class AnnotationTool:
         )
         self.current_detections = [d for d in dets if d.source == "model"]
         self.manual_detections = [d for d in dets if d.source != "model"]
+        self.selected_detection = None
         self.annotation_mode = True
         self.remove_mode = False
         self.update_display()
@@ -1214,12 +1286,124 @@ class AnnotationTool:
             self.current_rectified_frame = snap["rectified"]
             self.current_detections = snap["detections"]
             self.manual_detections = snap["manual_detections"]
+            self.selected_detection = None
             self.live_snapshot = None
             self.review_idx = None
             self.update_display()
             return
         self.review_idx = None
         self.load_next_frame()
+
+    def validate_selected_detection(self):
+        """Limpa selecao se o indice estiver invalido."""
+        if self.get_selected_detection() is None:
+            self.selected_detection = None
+
+    def get_selected_detection(self) -> Optional[Detection]:
+        """Retorna a detection selecionada (se existir)."""
+        if self.selected_detection is None:
+            return None
+        source, idx = self.selected_detection
+        dets = self.manual_detections if source == "manual" else self.current_detections
+        if 0 <= idx < len(dets):
+            return dets[idx]
+        return None
+
+    @staticmethod
+    def bbox_close(stored_bbox, bbox: np.ndarray, tol: float = 1.0) -> bool:
+        """Compara bboxes com tolerancia."""
+        if stored_bbox is None:
+            return False
+        arr = np.array(stored_bbox, dtype=np.float32)
+        return np.allclose(arr, bbox, atol=tol)
+
+    def find_detection_at(self, x: int, y: int) -> Optional[Tuple[str, int]]:
+        """Retorna (source, idx) da bbox que contem o ponto."""
+        candidates: List[Tuple[float, str, int]] = []
+        for idx, det in enumerate(self.manual_detections):
+            x1, y1, x2, y2 = det.original_bbox
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                area = float(max(x2 - x1, 0.0) * max(y2 - y1, 0.0))
+                candidates.append((area, "manual", idx))
+        for idx, det in enumerate(self.current_detections):
+            x1, y1, x2, y2 = det.original_bbox
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                area = float(max(x2 - x1, 0.0) * max(y2 - y1, 0.0))
+                candidates.append((area, "model", idx))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0])
+        _, source, idx = candidates[0]
+        return (source, idx)
+
+    def select_detection_at(self, x: int, y: int):
+        """Seleciona a bbox clicada para editar o ID."""
+        hit = self.find_detection_at(x, y)
+        if hit is None:
+            self.selected_detection = None
+            self.update_display()
+            return
+        self.selected_detection = hit
+        det = self.get_selected_detection()
+        if det is not None:
+            self.manual_id_var.set(str(det.track_id))
+        self.update_display()
+
+    def apply_manual_id_to_selection(self):
+        """Aplica o ID digitado a bbox selecionada."""
+        if self.selected_detection is None:
+            print("[AVISO] Nenhuma caixa selecionada para editar.")
+            return
+        new_id = self.consume_manual_id_override()
+        if new_id is None:
+            return
+        det = self.get_selected_detection()
+        if det is None:
+            print("[AVISO] Selecao invalida. Clique novamente na caixa.")
+            self.selected_detection = None
+            return
+        old_id = det.track_id
+        if old_id == new_id:
+            print("[INFO] ID selecionado ja e o mesmo.")
+            return
+        det.track_id = new_id
+        self.update_track_history_for_edit(old_id, new_id, det.original_bbox)
+        self.update_recent_tracks_for_edit(old_id, new_id, det.original_bbox)
+        if det.source == "manual":
+            if old_id in self.manual_track_memory:
+                del self.manual_track_memory[old_id]
+            self.manual_track_memory[new_id] = {"bbox": det.original_bbox.copy()}
+        print(f"[INFO] Track ID atualizado: {old_id} -> {new_id}.")
+        self.update_display()
+
+    def update_track_history_for_edit(self, old_id: int, new_id: int, bbox: np.ndarray):
+        """Atualiza track_history ao trocar track_id."""
+        old_entries = self.track_history.get(old_id, [])
+        if old_entries:
+            filtered = [
+                entry
+                for entry in old_entries
+                if not (entry.get("frame") == self.frame_index and self.bbox_close(entry.get("bbox"), bbox))
+            ]
+            if filtered:
+                self.track_history[old_id] = filtered
+            else:
+                self.track_history.pop(old_id, None)
+        entries = self.track_history.setdefault(new_id, [])
+        exists = any(
+            entry.get("frame") == self.frame_index and self.bbox_close(entry.get("bbox"), bbox) for entry in entries
+        )
+        if not exists:
+            entries.append({"frame": self.frame_index, "bbox": bbox.tolist()})
+
+    def update_recent_tracks_for_edit(self, old_id: int, new_id: int, bbox: np.ndarray):
+        """Atualiza recent_tracks no frame atual."""
+        for frame_data in self.recent_tracks:
+            if frame_data.get("frame") != self.frame_index:
+                continue
+            for tr in frame_data.get("tracks", []):
+                if tr.get("id") == old_id and self.bbox_close(tr.get("bbox"), bbox):
+                    tr["id"] = new_id
 
     def advance_after_review_accept(self):
         """Avanca apos aceitar revisao."""
