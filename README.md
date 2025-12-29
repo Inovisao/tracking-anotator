@@ -5,7 +5,7 @@ Interface Tkinter para validar e anotar deteccoes de multiplos videos em sequenc
 Bytetracker retirado de: https://github.com/FoundationVision/ByteTrack
 
 ## Requisitos de ambiente
-- Python 3.9+ com `pip`.
+- Python 3.9+ via `conda`.
 - Tkinter instalado (Ubuntu/Debian: `sudo apt-get install python3-tk`).
 - Toolchain para pacotes nativos (`build-essential`, `python3-dev`, `cmake`) — necessario para `lap`/`cython_bbox`.
 - (Opcional) CUDA instalado caso queira acelerar o YOLO na GPU.
@@ -13,10 +13,9 @@ Bytetracker retirado de: https://github.com/FoundationVision/ByteTrack
 
 ## Instalacao rapida
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # ou .venv\Scripts\activate no Windows
-pip install --upgrade pip
-pip install -r requirements.txt
+conda create -n tracking-anotator python=3.9
+conda activate tracking-anotator
+conda install -c conda-forge --file requirements.txt
 ```
 
 Coloque seus videos em `videos/` (subpastas sao suportadas) e deixe `yolo11l.pt` na raiz do repo. A pasta `output_dataset/` sera criada automaticamente.
