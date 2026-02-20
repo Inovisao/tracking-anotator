@@ -36,9 +36,9 @@ tracking-anotator/
 ├── main_test.py
 ├── yolo11l.pt
 └── videos/
-    ├── POZ1_Nador_green/
+    ├── Classe 1
     │   └── video1.mp4
-    └── POZ2_DAB_green/
+    └── Classe 2
         └── video2.avi
 ```
 

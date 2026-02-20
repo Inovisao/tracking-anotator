@@ -15,15 +15,17 @@ from tracker.byte_tracker import BYTETracker
 import signal
 
 # ====== CONFIGURACOES ======
-VIDEOS_ROOT = Path(__file__).resolve().parent / "videos"
+DATA_ROOT = Path(__file__).resolve().parent / "videos"
 VIDEO_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv")
-WEIGHTS_PATH = Path(__file__).resolve().parent / "yolo11l.pt"
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
+IMAGE_LIST_EXTENSIONS = (".txt", ".lst")
+WEIGHTS_PATH = Path(__file__).resolve().parent / "yolo26n.pt"
 OUTPUT_DIR = Path(__file__).resolve().parent / "output_dataset"
 OUTPUT_IMAGES_DIR = OUTPUT_DIR / "images"
 ANNOTATIONS_PATH = OUTPUT_DIR / "annotations.coco.json"
 HOMOGRAPHY_PATH = OUTPUT_DIR / "homography.json"
 CONF_THRESHOLD = 0.40
-TARGET_CLASS = "car"
+TARGET_CLASSES = ["card"]  # prompts de classe para modelos que suportam set_classes()
 SAVE_RECTIFIED_FRAMES = False  # True = salva frames warpPerspective; False = salva frames originais
 MANUAL_IOU_THRESHOLD = 0.30  # limiar para reutilizar track_id manual entre frames
 USE_RECTIFIED_FOR_DETECTION = True  # True = roda YOLO no frame retificado; False = roda no frame original
@@ -130,25 +132,40 @@ class AnnotationTool:
     """Controla a interface de validacao e a geracao do arquivo COCO."""
 
     def __init__(self):
-        if not VIDEOS_ROOT.exists():
-            raise FileNotFoundError(f"Pasta de videos nao encontrada: {VIDEOS_ROOT}")
+        if not DATA_ROOT.exists():
+            raise FileNotFoundError(f"Origem de dados nao encontrada: {DATA_ROOT}")
         if not WEIGHTS_PATH.exists():
             raise FileNotFoundError(f"Pesos nao encontrados: {WEIGHTS_PATH}")
 
-        self.video_files = sorted(
-            [p for p in VIDEOS_ROOT.rglob("*") if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS]
-        )
+        self.video_files = self.discover_sources(DATA_ROOT)
         if not self.video_files:
-            raise FileNotFoundError(f"Nenhum video encontrado em {VIDEOS_ROOT}")
+            raise FileNotFoundError(f"Nenhuma fonte valida encontrada em {DATA_ROOT}")
 
         OUTPUT_DIR.mkdir(exist_ok=True)
         OUTPUT_IMAGES_DIR.mkdir(exist_ok=True)
 
         self.model = YOLO(str(WEIGHTS_PATH))
+        self.target_classes = [name.strip() for name in TARGET_CLASSES if name.strip()]
+        if not self.target_classes:
+            raise ValueError("TARGET_CLASSES nao pode ser vazio.")
+        self.class_to_category_id = {name: idx + 1 for idx, name in enumerate(self.target_classes)}
+        self.uses_text_prompt = False
+        if hasattr(self.model, "set_classes"):
+            try:
+                self.model.set_classes(self.target_classes)
+                self.uses_text_prompt = True
+                print(f"[INFO] Prompt de classes aplicado no modelo: {self.target_classes}")
+            except Exception as exc:  # pylint: disable=broad-except
+                print(f"[AVISO] Falha ao aplicar set_classes({self.target_classes}): {exc}")
+        else:
+            print("[AVISO] Modelo nao suporta set_classes(); usando filtro por nome de classe.")
         self.default_tracker_args = ByteTrackerArgs()
         self.frame_rate = 30
         self.bytetracker = BYTETracker(self.default_tracker_args, frame_rate=self.frame_rate)
         self.cap: Optional[cv2.VideoCapture] = None
+        self.current_source_type = "video"
+        self.current_image_paths: List[Path] = []
+        self.current_image_cursor = 0
 
         self.video_name = ""
         self.video_path: Optional[Path] = None
@@ -174,7 +191,7 @@ class AnnotationTool:
         self.images: List[dict] = []
         self.annotations: List[dict] = []
         self.homographies: List[dict] = []
-        self.categories = [{"id": 1, "name": TARGET_CLASS}]
+        self.categories = [{"id": cid, "name": cname} for cname, cid in self.class_to_category_id.items()]
 
         self.roi_points: List[Tuple[int, int]] = []
         self.roi_defined = False
@@ -294,6 +311,83 @@ class AnnotationTool:
         self.register_signal_handlers()
         self.start_video(self.current_video_index)
 
+    @staticmethod
+    def is_video_source(source: Path) -> bool:
+        return source.is_file() and source.suffix.lower() in VIDEO_EXTENSIONS
+
+    @staticmethod
+    def is_image_source(source: Path) -> bool:
+        return source.is_file() and source.suffix.lower() in IMAGE_EXTENSIONS
+
+    @staticmethod
+    def is_image_list_source(source: Path) -> bool:
+        return source.is_file() and source.suffix.lower() in IMAGE_LIST_EXTENSIONS
+
+    def discover_sources(self, data_root: Path) -> List[Path]:
+        """Descobre fontes: videos, diretorio com imagens, imagem unica ou lista de imagens."""
+        if data_root.is_file():
+            if self.is_video_source(data_root) or self.is_image_source(data_root) or self.is_image_list_source(data_root):
+                return [data_root]
+            return []
+
+        video_paths = sorted(
+            [p for p in data_root.rglob("*") if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS]
+        )
+        if video_paths:
+            return video_paths
+
+        image_paths = sorted(
+            [p for p in data_root.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS]
+        )
+        if image_paths:
+            # diretorio inteiro vira uma unica sequencia de frames
+            return [data_root]
+
+        image_list_paths = sorted(
+            [p for p in data_root.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_LIST_EXTENSIONS]
+        )
+        return image_list_paths
+
+    def load_image_list(self, list_file: Path) -> List[Path]:
+        """Carrega caminhos de imagens a partir de um arquivo .txt/.lst."""
+        image_paths: List[Path] = []
+        try:
+            lines = list_file.read_text(encoding="utf-8").splitlines()
+        except Exception:  # pylint: disable=broad-except
+            return image_paths
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            p = Path(line)
+            if not p.is_absolute():
+                p = (list_file.parent / p).resolve()
+            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS:
+                image_paths.append(p)
+        return image_paths
+
+    def build_image_sequence(self, source: Path) -> List[Path]:
+        """Constroi sequencia de imagens para uma fonte."""
+        if source.is_dir():
+            return sorted([p for p in source.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS])
+        if self.is_image_source(source):
+            return [source]
+        if self.is_image_list_source(source):
+            return self.load_image_list(source)
+        return []
+
+    def read_next_image_frame(self) -> Optional[np.ndarray]:
+        """Le a proxima imagem da sequencia atual."""
+        while self.current_image_cursor < len(self.current_image_paths):
+            image_path = self.current_image_paths[self.current_image_cursor]
+            self.current_image_cursor += 1
+            frame = cv2.imread(str(image_path))
+            if frame is None:
+                print(f"[AVISO] Falha ao ler imagem: {image_path}")
+                continue
+            return frame
+        return None
+
     # ===================== CONTROLE DE VIDEOS =====================
     def load_existing_annotations(self):
         """Carrega anotacoes existentes para continuar de onde parou."""
@@ -337,7 +431,7 @@ class AnnotationTool:
     def start_video(self, index: int):
         """Abre o video indicado e prepara para anotacao."""
         if index < 0 or index >= len(self.video_files):
-            self.finish_processing("Todos os videos processados.")
+            self.finish_processing("Todas as fontes foram processadas.")
             return
 
         if self.cap is not None:
@@ -390,30 +484,50 @@ class AnnotationTool:
         self.manual_detections = []
         self.selected_detection = None
 
-        self.cap = cv2.VideoCapture(str(self.video_path))
-        if not self.cap.isOpened():
-            print(f"[ERRO] Falha ao abrir video: {self.video_path}")
-            self.start_video(index + 1)
-            return
-        fps = self.cap.get(cv2.CAP_PROP_FPS)
-        self.frame_rate = int(fps) if fps and fps > 1 else 30
-        self.bytetracker = BYTETracker(ByteTrackerArgs(), frame_rate=self.frame_rate)
-        if self.frame_index > 0:
-            try:
-                self.cap.set(cv2.CAP_PROP_POS_FRAMES, float(self.frame_index))
-            except Exception:  # pylint: disable=broad-except
-                pass
-
-        ret, first_frame = self.cap.read()
-        if not ret or first_frame is None:
-            print(f"[ERRO] Falha ao ler o primeiro frame: {self.video_path}")
-            self.start_video(index + 1)
-            return
+        first_frame = None
+        if self.is_video_source(self.video_path):
+            self.current_source_type = "video"
+            self.current_image_paths = []
+            self.current_image_cursor = 0
+            self.cap = cv2.VideoCapture(str(self.video_path))
+            if not self.cap.isOpened():
+                print(f"[ERRO] Falha ao abrir video: {self.video_path}")
+                self.start_video(index + 1)
+                return
+            fps = self.cap.get(cv2.CAP_PROP_FPS)
+            self.frame_rate = int(fps) if fps and fps > 1 else 30
+            self.bytetracker = BYTETracker(ByteTrackerArgs(), frame_rate=self.frame_rate)
+            if self.frame_index > 0:
+                try:
+                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, float(self.frame_index))
+                except Exception:  # pylint: disable=broad-except
+                    pass
+            ret, first_frame = self.cap.read()
+            if not ret or first_frame is None:
+                print(f"[ERRO] Falha ao ler o primeiro frame: {self.video_path}")
+                self.start_video(index + 1)
+                return
+        else:
+            self.current_source_type = "images"
+            self.cap = None
+            self.current_image_paths = self.build_image_sequence(self.video_path)
+            self.current_image_cursor = self.frame_index
+            self.frame_rate = 30
+            self.bytetracker = BYTETracker(ByteTrackerArgs(), frame_rate=self.frame_rate)
+            if not self.current_image_paths:
+                print(f"[ERRO] Nenhuma imagem valida encontrada para: {self.video_path}")
+                self.start_video(index + 1)
+                return
+            first_frame = self.read_next_image_frame()
+            if first_frame is None:
+                print(f"[ERRO] Falha ao ler imagens da fonte: {self.video_path}")
+                self.start_video(index + 1)
+                return
 
         self.current_frame = first_frame
         self.disable_controls_for_roi()
         self.info_var.set(
-            f"[Video {index + 1}/{len(self.video_files)}] {self.video_name}: selecione 4 pontos do ROI."
+            f"[Fonte {index + 1}/{len(self.video_files)}] {self.video_name}: selecione 4 pontos do ROI."
         )
         self.update_display()
 
@@ -424,10 +538,10 @@ class AnnotationTool:
             self.cap = None
         next_index = self.current_video_index + 1
         if next_index < len(self.video_files):
-            print(f"[INFO] Video concluido: {self.video_name}. Iniciando proximo.")
+            print(f"[INFO] Fonte concluida: {self.video_name}. Iniciando proxima.")
             self.start_video(next_index)
         else:
-            self.finish_processing("Todos os videos processados.")
+            self.finish_processing("Todas as fontes foram processadas.")
 
     # ===================== ROI & HOMOGRAFIA =====================
     def reset_roi(self):
@@ -962,21 +1076,26 @@ class AnnotationTool:
         self.update_display()
 
     def load_next_frame(self):
-        """Carrega o proximo frame do video e atualiza a tela."""
+        """Carrega o proximo frame da fonte atual e atualiza a tela."""
         if self.review_idx is not None:
             return
         if not self.roi_defined:
             print("[INFO] Defina o ROI antes de processar frames.")
             return
 
-        if self.cap is None:
-            self.finish_current_video()
-            return
-
-        ret, frame = self.cap.read()
-        if not ret:
-            self.finish_current_video()
-            return
+        if self.current_source_type == "video":
+            if self.cap is None:
+                self.finish_current_video()
+                return
+            ret, frame = self.cap.read()
+            if not ret:
+                self.finish_current_video()
+                return
+        else:
+            frame = self.read_next_image_frame()
+            if frame is None:
+                self.finish_current_video()
+                return
 
         self.process_current_frame(frame)
 
@@ -994,17 +1113,35 @@ class AnnotationTool:
 
         dets = []
         scores = []
+        det_category_ids = []
         for box in getattr(yolo_result, "boxes", []):
             conf = float(box.conf)
             cls_id = int(box.cls)
-            label = names.get(cls_id, str(cls_id))
-            if conf < CONF_THRESHOLD or label != TARGET_CLASS:
+            if isinstance(names, dict):
+                label = str(names.get(cls_id, str(cls_id)))
+            elif isinstance(names, list):
+                label = str(names[cls_id]) if 0 <= cls_id < len(names) else str(cls_id)
+            else:
+                label = str(cls_id)
+
+            if conf < CONF_THRESHOLD:
                 continue
+            if not self.uses_text_prompt and label not in self.class_to_category_id:
+                continue
+
+            category_id = self.class_to_category_id.get(label)
+            if category_id is None:
+                if self.uses_text_prompt and len(self.class_to_category_id) == 1:
+                    category_id = next(iter(self.class_to_category_id.values()))
+                else:
+                    continue
+
             xyxy = box.xyxy.cpu().numpy()[0]
             xyxy[0::2] = np.clip(xyxy[0::2], 0, img_width - 1)
             xyxy[1::2] = np.clip(xyxy[1::2], 0, img_height - 1)
             dets.append(xyxy)
             scores.append(conf)
+            det_category_ids.append(category_id)
 
         img_info = (img_height, img_width)
         img_size = (img_height, img_width)
@@ -1031,6 +1168,16 @@ class AnnotationTool:
             original_box = clip_bbox(tlbr[0], tlbr[1], tlbr[2], tlbr[3], img_width, img_height)
             if not self.is_inside_roi(original_box):
                 continue
+            matched_category_id = 1
+            if dets and det_category_ids:
+                best_iou = 0.0
+                best_category = det_category_ids[0]
+                for det_box, det_cid in zip(dets, det_category_ids):
+                    iou = bbox_iou(original_box, np.array(det_box, dtype=np.float32))
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_category = det_cid
+                matched_category_id = best_category
             warp_box = None
             if self.homography_matrix is not None and self.warp_size is not None:
                 warp_box = self.project_bbox(original_box, self.homography_matrix, self.warp_size[0], self.warp_size[1])
@@ -1040,7 +1187,7 @@ class AnnotationTool:
                     original_bbox=original_box,
                     warp_bbox=warp_box,
                     confidence=score,
-                    category_id=1,
+                    category_id=matched_category_id,
                     track_id=track_id,
                     source="model",
                     internal_id=internal_id,
