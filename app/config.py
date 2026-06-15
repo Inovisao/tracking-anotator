@@ -1,6 +1,5 @@
 import sys
 from pathlib import Path
-import os
 
 # When frozen by PyInstaller, assets live in sys._MEIPASS.
 # In development, they live two levels above this file (project root).
@@ -18,8 +17,8 @@ VIDEO_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv")
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 IMAGE_LIST_EXTENSIONS = (".txt", ".lst")
 WEIGHTS_PATH = _EXE_DIR / "model.pt"
-OUTPUT_DATASET_PREFIX = os.path.join(BASE_DIR, "output_dataset")
-SAVED_STATES_SUBDIR = os.path.join(BASE_DIR, "saved_data_states")
+OUTPUT_DATASET_PREFIX = "output_dataset"  # kept for parsing legacy state dir names
+SAVED_STATES_SUBDIR = "saved_data_states"
 CONF_THRESHOLD = 0.40
 TARGET_CLASSES = []
 SAVE_RECTIFIED_FRAMES = False
