@@ -16,6 +16,7 @@ class AnnotationTaskMode(str, Enum):
     TRACKING = "tracking"
     DETECTION = "detection"
     OBB = "obb"
+    KEYPOINT = "keypoint"
     CLASSIFICATION = "classification"
 
     @property
@@ -24,6 +25,8 @@ class AnnotationTaskMode(str, Enum):
             return "Tracking"
         if self is AnnotationTaskMode.OBB:
             return "Deteccao orientada (OBB)"
+        if self is AnnotationTaskMode.KEYPOINT:
+            return "Keypoint detection"
         if self is AnnotationTaskMode.CLASSIFICATION:
             return "Classificacao de imagens"
         return "Deteccao padrao"

@@ -1,7 +1,7 @@
 # InoLabel
 
 Ferramenta de anotação de imagens e vídeos desenvolvida pelo **Laboratório de Visão Computacional — Inovisão**.
-Suporta quatro modos de trabalho: tracking, detecção padrão, detecção orientada (OBB) e classificação de imagens.
+Suporta cinco modos de trabalho: tracking, detecção padrão, detecção orientada (OBB), keypoint detection (pose) e classificação de imagens.
 
 ---
 
@@ -150,9 +150,9 @@ python main.py   # ou execute o binário gerado pelo build
 
 O wizard de configuração abrirá pedindo:
 
-1. **Modo** — escolha entre os quatro modos abaixo
+1. **Modo** — escolha entre os cinco modos abaixo
 2. **Dataset** — pasta, vídeo, imagem única ou lista `.txt`/`.lst`
-3. **Estado de saída** — continuar saída anterior, usar como template ou criar novo
+3. **Estado de saída** — continuar saída anterior, usar como template ou criar novo. Por padrão os estados são salvos em **`state_saved/`** na raiz da aplicação (a pasta-pai é editável no wizard)
 4. **Modelo e classes** — adicione um ou mais pesos YOLO `.pt` (opcional) e configure as classes da sessão
 
 ---
@@ -164,9 +164,53 @@ O wizard de configuração abrirá pedindo:
 | **Tracking** | Mantém identidade dos objetos entre frames via BYTETracker por classe |
 | **Detecção padrão** | Caixas independentes por frame, sem `track_id` |
 | **Detecção orientada (OBB)** | Caixas rotacionadas com ângulo, exportáveis no formato YOLO OBB |
+| **Keypoint detection** | Pontos-chave ordenados por instância, exportáveis em COCO Keypoints e YOLO Pose |
 | **Classificação** | Copia imagens para subpastas por classe ao pressionar o atalho da classe |
 
 O modelo YOLO é **opcional** em todos os modos — é possível anotar inteiramente de forma manual.
+
+---
+
+## Modo Keypoint detection (pose)
+
+Cada instância de objeto possui uma **classe** e um conjunto de **keypoints com ordem fixa** (a ordem é semântica e nunca é reordenada automaticamente durante a anotação).
+
+### Configuração
+
+No wizard, ao escolher o modo **Keypoint detection**, defina por classe a lista de keypoints **em ordem**, separados por vírgula (ex: `top_left, top_right, bottom_right, bottom_left`). A configuração é obrigatória — o início é bloqueado se alguma classe não tiver keypoints definidos — e fica salva em `categories[].keypoints` para reabrir e continuar depois.
+
+### Como anotar
+
+- Clique para posicionar cada ponto na ordem definida. Ao completar o último ponto da classe, a instância **fecha automaticamente**.
+- Para classes **sem lista fixa** (modo livre), a forma fecha ao clicar novamente sobre o **primeiro ponto** (a partir de 3 pontos) — um anel verde e o texto `fechar` indicam quando o clique vai fechar.
+- A **bounding box** é calculada automaticamente a partir dos pontos com visibilidade `> 0`.
+
+Visibilidade (convenção COCO): `0` ausente, `1` oculto/anotável, `2` visível.
+
+| Tecla | Ação (modo keypoint) |
+|-------|----------------------|
+| `F` | Finalizar instância atual |
+| `X` | Marcar o ponto atual como ausente (`v=0`) |
+| `C` | Alternar a visibilidade do próximo ponto (`2 → 1 → 0`) |
+| `Backspace` | Remover o último ponto (ou cancelar a instância em construção) |
+| `S` | Selecionar/mover pontos ou instâncias |
+
+### Exportação
+
+O botão **Exportar dataset** abre a **mesma tela de exportação** dos detectores (seleção de pasta de saída, split train/val/test e data augmentation). Formatos:
+
+- **COCO Keypoints** — `keypoints: [x,y,v,...]`, `num_keypoints`, `bbox` e `categories[].keypoints`.
+- **YOLO Pose** — `class cx cy w h x1 y1 v1 ...` (tudo normalizado) e `kpt_shape` no `data.yaml`. Todas as linhas têm o mesmo número de keypoints; pontos ausentes saem como `0 0 0`.
+
+O **data augmentation** transforma também os keypoints (flip, rotação, etc., além das operações fotométricas) e é aplicado apenas na pasta `train`.
+
+### Conserto de anotações antigas
+
+`utils/fix_keypoint_coco.py` repara um COCO Keypoints inconsistente: preenche `categories[].keypoints`, remove ponto de fechamento duplicado e recalcula `bbox`/`num_keypoints`. Por **padrão**, instâncias de 4 pontos são ordenadas em **TL → TR → BR → BL** (ideal para documentos); use `--no-sort-corners` para preservar a ordem original.
+
+```bash
+python utils/fix_keypoint_coco.py outputs/.../annotations_keypoints.coco.json
+```
 
 ---
 
@@ -242,6 +286,7 @@ outputs/<tarefa>_<DD.MM.HH-MM>/   (ex: detecção_25.05.14-30)
 ├── images/                         # frames salvos (originais ou retificados)
 ├── annotations.coco.json           # COCO com track_id (tracking) ou bbox simples
 ├── annotations_obb.coco.json       # COCO OBB (modo OBB)
+├── annotations_keypoints.coco.json # COCO Keypoints (modo keypoint)
 ├── annotations_detection.coco.json # COCO detecção padrão exportado pelo botão
 ├── yolo_dataset/                   # dataset YOLO exportado pelo botão
 │   ├── data.yaml

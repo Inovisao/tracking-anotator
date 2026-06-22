@@ -98,6 +98,44 @@ class ExportActionsMixin:
         payload["images"] = images
         return payload
 
+    def _export_yolo_format(self, payload, yolo_root, config, on_progress):
+        """Returns (summary_line, exported_part). Override per task to change the YOLO flavor."""
+        if config.use_split:
+            report = export_yolo_dataset(
+                payload,
+                source_images_dir=self.output_images_dir,
+                dataset_root=yolo_root,
+                split_ratios=config.split_ratios,
+                augmentation_preset=config.augmentation,
+                on_progress=on_progress,
+            )
+            total_images = sum(report["images_per_split"].values())
+            total_labels = sum(report["labels_per_split"].values())
+            split_text = " ".join(f"{name}={count}" for name, count in report["images_per_split"].items())
+            return f"YOLO: {total_images} imagens, {total_labels} labels", f"YOLO {split_text}"
+        report = export_yolo_no_split(
+            payload,
+            source_images_dir=self.output_images_dir,
+            dataset_root=yolo_root,
+            augmentation_preset=config.augmentation,
+            on_progress=on_progress,
+        )
+        return (
+            f"YOLO: {report['total_images']} imagens, {report['total_labels']} labels",
+            f"YOLO all={report['total_images']} imgs",
+        )
+
+    def _export_coco_format(self, payload, coco_dir, on_progress):
+        """Returns (summary_line, exported_part). Override per task to change the COCO flavor."""
+        coco_path = coco_dir / "annotations.coco.json"
+        converted = export_detection_coco_json(
+            payload,
+            coco_path,
+            source_images_dir=self.output_images_dir,
+            on_progress=on_progress,
+        )
+        return f"COCO: {len(converted['images'])} imagens", f"COCO imgs={len(converted['images'])}"
+
     def perform_dataset_export(self, config, cancel_event=None):
         multi_format = len(config.formats) > 1
         export_root = self.resolve_user_export_root(config.destination_parent, config.folder_name)
@@ -125,44 +163,17 @@ class ExportActionsMixin:
 
             if "yolo" in config.formats:
                 yolo_root = export_root / "yolo" if multi_format else export_root
-                if config.use_split:
-                    report = export_yolo_dataset(
-                        payload,
-                        source_images_dir=self.output_images_dir,
-                        dataset_root=yolo_root,
-                        split_ratios=config.split_ratios,
-                        augmentation_preset=config.augmentation,
-                        on_progress=lambda d, _t: _progress(d, yolo_offset),
-                    )
-                    total_images = sum(report["images_per_split"].values())
-                    total_labels = sum(report["labels_per_split"].values())
-                    split_text = " ".join(
-                        f"{name}={count}" for name, count in report["images_per_split"].items()
-                    )
-                    yolo_summary = f"YOLO: {total_images} imagens, {total_labels} labels"
-                    exported_parts.append(f"YOLO {split_text}")
-                else:
-                    report = export_yolo_no_split(
-                        payload,
-                        source_images_dir=self.output_images_dir,
-                        dataset_root=yolo_root,
-                        augmentation_preset=config.augmentation,
-                        on_progress=lambda d, _t: _progress(d, yolo_offset),
-                    )
-                    yolo_summary = f"YOLO: {report['total_images']} imagens, {report['total_labels']} labels"
-                    exported_parts.append(f"YOLO all={report['total_images']} imgs")
+                yolo_summary, part = self._export_yolo_format(
+                    payload, yolo_root, config, lambda d, _t: _progress(d, yolo_offset)
+                )
+                exported_parts.append(part)
 
             if "coco" in config.formats:
                 coco_dir = export_root / "coco" if multi_format else export_root
-                coco_path = coco_dir / "annotations.coco.json"
-                converted = export_detection_coco_json(
-                    payload,
-                    coco_path,
-                    source_images_dir=self.output_images_dir,
-                    on_progress=lambda d, _t: _progress(d, coco_offset),
+                coco_summary, part = self._export_coco_format(
+                    payload, coco_dir, lambda d, _t: _progress(d, coco_offset)
                 )
-                coco_summary = f"COCO: {len(converted['images'])} imagens"
-                exported_parts.append(f"COCO imgs={len(converted['images'])}")
+                exported_parts.append(part)
 
             summary_lines = [line for line in (yolo_summary, coco_summary) if line]
             message = f"Dataset exportado com sucesso em: {export_root}"

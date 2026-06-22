@@ -1,5 +1,6 @@
 # ── Dados e modelos (nunca versionar) ────────────────────────────────────────
 outputs/
+state_saved/
 dataset/
 data/
 models/

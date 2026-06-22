@@ -18,6 +18,10 @@ def main() -> int:
         from app.annotation_obb.tool import OBBAnnotationTool
 
         tool_cls = OBBAnnotationTool
+    elif session_config.mode is AnnotationTaskMode.KEYPOINT:
+        from app.annotation_keypoint.tool import KeypointAnnotationTool
+
+        tool_cls = KeypointAnnotationTool
     else:
         tool_cls = AnnotationTool
 

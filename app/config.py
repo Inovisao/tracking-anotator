@@ -19,6 +19,8 @@ IMAGE_LIST_EXTENSIONS = (".txt", ".lst")
 WEIGHTS_PATH = _EXE_DIR / "model.pt"
 OUTPUT_DATASET_PREFIX = "output_dataset"  # kept for parsing legacy state dir names
 SAVED_STATES_SUBDIR = "saved_data_states"
+# Default root where new projects/states are created (app root / state_saved).
+STATE_SAVED_ROOT = _EXE_DIR / "state_saved"
 CONF_THRESHOLD = 0.40
 TARGET_CLASSES = []
 SAVE_RECTIFIED_FRAMES = False

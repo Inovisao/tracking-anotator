@@ -81,13 +81,16 @@ class StartupWizard:
         self.selected_state_path: Optional[Path] = None
         self.loaded_state_categories: tuple[dict, ...] = ()
         self.classes: List[str] = []
+        # KEYPOINT mode: class name → comma-separated keypoint names (fixed order)
+        self.keypoint_names_by_class: dict[str, str] = {}
         self.class_panel: Optional[tk.Frame] = None
         self.summary: Optional[SourceSummary] = None
         self.output_states: list[OutputState] = []
-        # Project location: parent dir + session name chosen by user
+        # Project location: parent dir + session name chosen by user.
+        # New states default to <app root>/state_saved (still editable below).
         cached_parent = self.cache.parent_dir
-        from app.config import _EXE_DIR
-        default_parent = str(cached_parent) if cached_parent and cached_parent.exists() else str(_EXE_DIR)
+        from app.config import STATE_SAVED_ROOT
+        default_parent = str(cached_parent) if cached_parent and cached_parent.exists() else str(STATE_SAVED_ROOT)
         self.parent_dir_var = tk.StringVar(value=default_parent)
         self.session_name_var = tk.StringVar(value="")
 
@@ -353,21 +356,20 @@ class StartupWizard:
         body.rowconfigure(2, weight=1)
         options = tk.Frame(body, bg=self.colors["bg"])
         options.grid(row=2, column=0, sticky="nsew")
-        for col in range(4):
+        for col in range(3):
             options.columnconfigure(col, weight=1)
 
-        self._mode_card(options, AnnotationTaskMode.TRACKING, "Mantem IDs por objeto e usa rastreamento multiclass.").grid(
-            row=0, column=0, sticky="nsew", padx=(0, 8), pady=8
-        )
-        self._mode_card(options, AnnotationTaskMode.DETECTION, "Gera caixas independentes, sem IDs de tracking.").grid(
-            row=0, column=1, sticky="nsew", padx=(8, 8), pady=8
-        )
-        self._mode_card(options, AnnotationTaskMode.OBB, "Gera caixas orientadas com angulo para exportacao YOLO OBB.").grid(
-            row=0, column=2, sticky="nsew", padx=(8, 8), pady=8
-        )
-        self._mode_card(options, AnnotationTaskMode.CLASSIFICATION, "Copia imagens para subpastas ao clicar na classe.").grid(
-            row=0, column=3, sticky="nsew", padx=(8, 0), pady=8
-        )
+        cards = [
+            (AnnotationTaskMode.TRACKING, "Mantem IDs por objeto e usa rastreamento multiclass."),
+            (AnnotationTaskMode.DETECTION, "Gera caixas independentes, sem IDs de tracking."),
+            (AnnotationTaskMode.OBB, "Gera caixas orientadas com angulo para exportacao YOLO OBB."),
+            (AnnotationTaskMode.KEYPOINT, "Marca pontos-chave por instancia para exportar YOLO Pose."),
+            (AnnotationTaskMode.CLASSIFICATION, "Copia imagens para subpastas ao clicar na classe."),
+        ]
+        for idx, (mode, description) in enumerate(cards):
+            self._mode_card(options, mode, description).grid(
+                row=idx // 3, column=idx % 3, sticky="nsew", padx=8, pady=8
+            )
         self._footer(body, None, self.show_dataset_screen)
 
     def _mode_card(self, parent, mode: AnnotationTaskMode, description: str):
@@ -1228,10 +1230,50 @@ class StartupWizard:
                 command=lambda n=name: self._remove_class(panel, n),
             )
             remove_btn.grid(row=0, column=4, sticky="e", padx=(self.spacing["sm"], 0))
+            if AnnotationTaskMode(self.mode_var.get()) is AnnotationTaskMode.KEYPOINT:
+                self._build_keypoint_entry(row, name)
         self._button(panel, "+ Nova classe", lambda: self._show_class_entry(panel)).pack(
             fill=tk.X,
             pady=self.spacing["xs"],
         )
+
+    DEFAULT_KEYPOINTS = "top_left, top_right, bottom_right, bottom_left"
+
+    def _build_keypoint_entry(self, row: tk.Frame, name: str):
+        if name not in self.keypoint_names_by_class:
+            for cat in self.loaded_state_categories:
+                if str(cat.get("name", "")).strip() == name and cat.get("keypoints"):
+                    self.keypoint_names_by_class[name] = ", ".join(str(n) for n in cat["keypoints"])
+                    break
+            else:
+                self.keypoint_names_by_class[name] = self.DEFAULT_KEYPOINTS
+        var = tk.StringVar(value=self.keypoint_names_by_class.get(name, ""))
+        var.trace_add("write", lambda *_: self.keypoint_names_by_class.__setitem__(name, var.get()))
+        tk.Label(
+            row, text="Keypoints (em ordem, separados por virgula)  —  ex: top_left, top_right, bottom_right, bottom_left",
+            font=self.fonts["caption"], bg=self.colors["input_bg"], fg=self.colors["muted"], anchor="w",
+        ).grid(row=1, column=0, columnspan=5, sticky="ew", padx=self.spacing["sm"])
+        self._entry(row, var).grid(row=2, column=0, columnspan=5, sticky="ew",
+                                   padx=self.spacing["sm"], pady=(0, self.spacing["sm"]))
+
+    def _parse_keypoint_names(self, class_name: str) -> list[str]:
+        raw = self.keypoint_names_by_class.get(class_name, "")
+        names, seen = [], set()
+        for part in raw.split(","):
+            item = part.strip()
+            if item and item not in seen:
+                seen.add(item)
+                names.append(item)
+        return names
+
+    def _effective_keypoints(self, class_name: str) -> list[str]:
+        parsed = self._parse_keypoint_names(class_name)
+        if parsed:
+            return parsed
+        for cat in self.loaded_state_categories:
+            if str(cat.get("name", "")).strip() == class_name and cat.get("keypoints"):
+                return [str(n) for n in cat["keypoints"]]
+        return []
 
     def _remove_class(self, panel: tk.Frame, name: str):
         if len(self.classes) <= 1:
@@ -1293,6 +1335,15 @@ class StartupWizard:
         if not self.classes:
             messagebox.showerror("Classes invalidas", "Adicione ao menos uma classe antes de iniciar.")
             return
+        if mode is AnnotationTaskMode.KEYPOINT:
+            missing = [c for c in self.classes if not self._effective_keypoints(c)]
+            if missing:
+                messagebox.showerror(
+                    "Keypoints obrigatorios",
+                    "Defina os keypoints (em ordem) para: " + ", ".join(missing)
+                    + "\n\nEx: top_left, top_right, bottom_right, bottom_left",
+                )
+                return
         data_root = Path(raw_data_root).expanduser()
         weights_paths = tuple(Path(p).expanduser() for p in self.weights_paths) if mode is not AnnotationTaskMode.CLASSIFICATION else ()
         if mode is not AnnotationTaskMode.CLASSIFICATION and self.weights_paths and not self.validate_models(import_classes=False, refresh_screen=False):
@@ -1415,10 +1466,21 @@ class StartupWizard:
 
         self._sync_loaded_categories_to_classes()
         category_metadata = self.loaded_state_categories
+        if mode is AnnotationTaskMode.KEYPOINT:
+            category_metadata = tuple(
+                {
+                    **cat,
+                    "keypoints": self._effective_keypoints(cat.get("name", "")),
+                    "skeleton": cat.get("skeleton", []),
+                }
+                for cat in category_metadata
+            )
 
         try:
             if mode is AnnotationTaskMode.OBB and annotations_path is None:
                 annotations_path = output_dir / "saved_data_states" / "annotations_obb.coco.json"
+            if mode is AnnotationTaskMode.KEYPOINT and annotations_path is None:
+                annotations_path = output_dir / "saved_data_states" / "annotations_keypoints.coco.json"
             self.result = AnnotationSessionConfig(
                 mode=mode,
                 data_root=data_root,
