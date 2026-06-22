@@ -16,7 +16,12 @@ from typing import Iterable, Optional
 from app.config import OUTPUT_DATASET_PREFIX, SAVED_STATES_SUBDIR
 from app.core.session import AnnotationTaskMode, normalize_class_names
 
-ANNOTATION_FILE_NAMES = ("annotations.coco.json", "annotations_obb.coco.json", "__annotations.coco.json")
+ANNOTATION_FILE_NAMES = (
+    "annotations.coco.json",
+    "annotations_obb.coco.json",
+    "annotations_keypoints.coco.json",
+    "__annotations.coco.json",
+)
 STATE_PATTERN = re.compile(rf"^{re.escape(OUTPUT_DATASET_PREFIX)}(?P<index>\d+)_(?P<stamp>\d{{8}}_\d{{6}})$")
 NEW_STATE_PATTERN = re.compile(r"^.+_(?P<day>\d{2})\.(?P<month>\d{2})\.(?P<hour>\d{2})-(?P<minute>\d{2})(?:_\d{3})?$")
 TASK_DIR_NAMES = {

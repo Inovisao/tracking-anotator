@@ -4,7 +4,7 @@ from app.annotation.keybinds.keybind_mixin import KeybindMixin
 
 class KPUIControlsMixin(KeybindMixin):
     def _bind_shortcuts(self):
-        self.window.bind("<Escape>", lambda event: self._run_shortcut(event, self.on_quit))
+        self.window.bind("<Escape>", lambda event: self._run_shortcut(event, self.on_escape))
         for key in "123456789":
             self.window.bind(key, self.on_class_shortcut)
         # Fixed keypoint instance controls

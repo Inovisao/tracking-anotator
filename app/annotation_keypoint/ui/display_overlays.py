@@ -17,26 +17,27 @@ class KPDisplayOverlaysMixin:
             selected = idx == self.selected_instance
             self._draw_single_instance(
                 frame, inst, color_by_id, name_by_id,
-                selected=selected, sel_kp=self.selected_kp if selected else None, draw_bbox=True,
+                selected=selected, sel_kp=self.selected_kp if selected else None, closed=True,
             )
         if self.wip_instance is not None:
             self._draw_single_instance(
                 frame, self.wip_instance, color_by_id, name_by_id,
-                selected=True, sel_kp=None, draw_bbox=False,
+                selected=True, sel_kp=None, closed=False,
             )
             self._draw_wip_preview(frame, color_by_id, name_by_id)
         return frame
 
-    def _draw_single_instance(self, frame, inst, color_by_id, name_by_id, *, selected, sel_kp, draw_bbox):
+    def _draw_single_instance(self, frame, inst, color_by_id, name_by_id, *, selected, sel_kp, closed):
         color = self.hex_to_bgr(color_by_id.get(inst.category_id, "#22c55e"))
         if selected:
             color = (0, 255, 255)
         names = self.keypoint_names_for_category(inst.category_id)
-        if draw_bbox:
-            x, y, w, h = keypoints_bbox(inst)
-            if w > 0 and h > 0:
-                cv2.rectangle(frame, (int(x), int(y)), (int(x + w), int(y + h)), color, 1)
-        self._draw_skeleton(frame, inst, color)
+        # Follow the annotated points: a skeleton when defined, otherwise the
+        # chain of clicked points (closed into a polygon once finalized).
+        if self._category_skeleton(inst.category_id):
+            self._draw_skeleton(frame, inst, color)
+        else:
+            self._draw_point_chain(frame, inst, color, closed)
         for kp_idx, kp in enumerate(inst.keypoints):
             if kp[2] <= 0:
                 continue
@@ -48,6 +49,19 @@ class KPDisplayOverlaysMixin:
                 cv2.circle(frame, (px, py), radius, color, -1)
             label = names[kp_idx] if kp_idx < len(names) else str(kp_idx + 1)
             cv2.putText(frame, label, (px + 6, py - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
+
+    def _category_skeleton(self, category_id: int) -> list:
+        for cat in self.categories:
+            if int(cat.get("id", 0)) == category_id:
+                return cat.get("skeleton", []) or []
+        return []
+
+    def _draw_point_chain(self, frame, inst, color, closed: bool):
+        pts = [(int(round(kp[0])), int(round(kp[1]))) for kp in inst.keypoints if kp[2] > 0]
+        for i in range(len(pts) - 1):
+            cv2.line(frame, pts[i], pts[i + 1], color, 1)
+        if closed and len(pts) >= 3:
+            cv2.line(frame, pts[-1], pts[0], color, 1)
 
     def _draw_skeleton(self, frame, inst, color):
         for cat in self.categories:

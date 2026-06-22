@@ -48,7 +48,18 @@ class KPMouseEventsMixin:
             self.wip_instance.keypoints[self.wip_index] = [0.0, 0.0, V_ABSENT]
         else:
             self.wip_instance.keypoints.pop()
+        if self.wip_index <= 0:  # last point removed — drop the empty instance
+            self.wip_instance = None
+            self.wip_index = 0
         self.update_display(refresh_status=True)
+
+    def on_escape(self):
+        """Esc cancels the instance being drawn; only quits when nothing is in progress."""
+        if self.wip_instance is not None:
+            self.cancel_wip_instance()
+            self.info_var.set("Instancia cancelada.")
+            return
+        self.on_quit()
 
     def cycle_next_visibility(self):
         order = [V_VISIBLE, V_HIDDEN, V_ABSENT]

@@ -87,11 +87,10 @@ class StartupWizard:
         self.summary: Optional[SourceSummary] = None
         self.output_states: list[OutputState] = []
         # Project location: parent dir + session name chosen by user.
-        # New states default to <app root>/state_saved (still editable below).
-        cached_parent = self.cache.parent_dir
+        # States always default to <app root>/state_saved (still editable below);
+        # the cached parent is intentionally ignored so new states land at the root.
         from app.config import STATE_SAVED_ROOT
-        default_parent = str(cached_parent) if cached_parent and cached_parent.exists() else str(STATE_SAVED_ROOT)
-        self.parent_dir_var = tk.StringVar(value=default_parent)
+        self.parent_dir_var = tk.StringVar(value=str(STATE_SAVED_ROOT))
         self.session_name_var = tk.StringVar(value="")
 
         self.page = tk.Frame(self.root, bg=self.colors["bg"])
@@ -897,7 +896,7 @@ class StartupWizard:
             filetypes=[
                 (
                     "Estado de classificacao" if is_classification else "COCO annotations",
-                    CLASSIFICATION_STATE_FILE_NAME if is_classification else "annotations.coco.json __annotations.coco.json *.json",
+                    CLASSIFICATION_STATE_FILE_NAME if is_classification else "annotations.coco.json annotations_obb.coco.json annotations_keypoints.coco.json __annotations.coco.json *.json",
                 ),
                 ("Todos os arquivos", "*.*"),
             ],
@@ -922,7 +921,8 @@ class StartupWizard:
         elif find_annotations_path(selected_path) is None:
             messagebox.showerror(
                 "Estado invalido",
-                "Selecione um estado COCO valido: annotations.coco.json, annotations_obb.coco.json ou __annotations.coco.json.",
+                "Selecione um estado COCO valido: annotations.coco.json, annotations_obb.coco.json, "
+                "annotations_keypoints.coco.json ou __annotations.coco.json.",
             )
             return
         if is_classification:
