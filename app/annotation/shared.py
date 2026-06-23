@@ -15,11 +15,12 @@ import numpy as np
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
-from ultralytics import YOLO
 
-from tracker.byte_tracker import BYTETracker
+# NOTE: ultralytics (YOLO) and tracker.byte_tracker (BYTETracker) pull in torch
+# (~4s, hundreds of MB). They are imported lazily where actually used
+# (core_init.ensure_models_loaded, runtime_state, source_helpers) so modes that
+# never load a model — keypoint, classification, OBB browsing — start instantly.
 from app.core.session import AnnotationSessionConfig, AnnotationTaskMode
-from app.tracking import MultiClassByteTracker
 from app.config import (
     CANVAS_PADDING_PX,
     CONF_THRESHOLD,

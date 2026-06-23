@@ -5,12 +5,14 @@ class KPReviewNavMixin:
     def append_saved_record(self, detections: List[KeypointInstance], image_id: int, file_name: str):
         if self.current_frame is None:
             return
+        # Frames live on disk already; keep them out of RAM and load on demand
+        # (review navigation) via _load_record_frame — saves ~MBs per saved frame.
         self.saved_records.append({
             "image_id": image_id,
             "file_name": file_name,
             "frame_index": self.frame_index,
-            "frame": self.current_frame.copy(),
-            "rectified_frame": self.current_rectified_frame.copy() if self.current_rectified_frame is not None else None,
+            "frame": None,
+            "rectified_frame": None,
             "detections": [clone_keypoint(inst) for inst in detections],
         })
         if len(self.saved_records) > MAX_SAVED_FRAME_CACHE:
@@ -25,8 +27,8 @@ class KPReviewNavMixin:
             "image_id": image_id,
             "file_name": file_name,
             "frame_index": self.frame_index,
-            "frame": self.current_frame.copy(),
-            "rectified_frame": self.current_rectified_frame.copy() if self.current_rectified_frame is not None else None,
+            "frame": None,
+            "rectified_frame": None,
             "detections": [clone_keypoint(inst) for inst in detections],
         }
 
@@ -112,15 +114,14 @@ class KPReviewNavMixin:
         self.update_display(refresh_status=True)
 
     def _load_record_frame(self, record: dict) -> Optional[np.ndarray]:
+        # Load from disk without caching back, so reviewing many frames does not
+        # grow RAM — go_to_saved_frame keeps only the single current frame.
         if record.get("frame") is not None:
             return record["frame"]
         file_name = record.get("file_name", "")
         if not file_name:
             return None
-        frame = cv2.imread(str(self.output_images_dir / file_name))
-        if frame is not None:
-            record["frame"] = frame
-        return frame
+        return cv2.imread(str(self.output_images_dir / file_name))
 
     def on_prev_saved(self):
         self.autosave_current_frame(reason="antes de voltar")

@@ -8,8 +8,6 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 from typing import Callable, List, Optional
 
-from ultralytics import YOLO
-
 from app.classification.dataset import (
     STATE_FILE_NAME as CLASSIFICATION_STATE_FILE_NAME,
     discover_images,
@@ -1077,6 +1075,8 @@ class StartupWizard:
         if not self.weights_paths:
             messagebox.showerror("Modelos invalidos", "Adicione ao menos um arquivo de pesos antes de continuar.")
             return False
+
+        from ultralytics import YOLO  # deferred: importing torch costs ~4s
 
         merged_classes: List[str] = []
         failed: List[str] = []

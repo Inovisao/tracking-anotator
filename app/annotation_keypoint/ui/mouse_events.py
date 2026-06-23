@@ -168,9 +168,10 @@ class KPMouseEventsMixin:
         if self.current_frame is None or self.wip_instance is None:
             return
         coords = self.canvas_to_image_coords(event.x, event.y)
+        if coords is None or coords == self.cursor_image_pos:
+            return  # skip the full re-render when the image-space point is unchanged
         self.cursor_image_pos = coords
-        if coords is not None:
-            self.update_display()
+        self.update_display()
 
     # ── pan & zoom ────────────────────────────────────────────────
     def on_pan_start(self, event):

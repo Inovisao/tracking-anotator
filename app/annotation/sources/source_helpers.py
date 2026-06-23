@@ -2,6 +2,12 @@ from app.annotation.shared import *
 
 
 class SourceHelpersMixin:
+    def _init_trackers(self):
+        from tracker.byte_tracker import BYTETracker  # deferred: pulls torch (~4s)
+        from app.tracking import MultiClassByteTracker
+        self.bytetracker = BYTETracker(ByteTrackerArgs(), frame_rate=self.frame_rate)
+        self.multiclass_tracker = MultiClassByteTracker(ByteTrackerArgs(), frame_rate=self.frame_rate)
+
     def _reset_open_source(self):
         if self.cap is not None:
             self.cap.release()
@@ -106,8 +112,7 @@ class SourceHelpersMixin:
             return None
         fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.frame_rate = int(fps) if fps and fps > 1 else 30
-        self.bytetracker = BYTETracker(ByteTrackerArgs(), frame_rate=self.frame_rate)
-        self.multiclass_tracker = MultiClassByteTracker(ByteTrackerArgs(), frame_rate=self.frame_rate)
+        self._init_trackers()
         if self.frame_index > 0:
             try:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, float(self.frame_index))
@@ -131,8 +136,7 @@ class SourceHelpersMixin:
             resume_cursor = self.frame_index
         self.current_image_cursor = resume_cursor
         self.frame_rate = 30
-        self.bytetracker = BYTETracker(ByteTrackerArgs(), frame_rate=self.frame_rate)
-        self.multiclass_tracker = MultiClassByteTracker(ByteTrackerArgs(), frame_rate=self.frame_rate)
+        self._init_trackers()
         if not self.current_image_paths:
             print(f"[ERRO] Nenhuma imagem valida encontrada para: {self.video_path}")
             return None

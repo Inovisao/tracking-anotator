@@ -1,4 +1,9 @@
+import tempfile
 import unittest
+from pathlib import Path
+
+import cv2
+import numpy as np
 
 from app.annotation_keypoint.geometry.keypoint import V_VISIBLE, KeypointInstance
 from _keypoint_harness import FakeKPTool
@@ -48,6 +53,31 @@ class ResetAndSaveTest(unittest.TestCase):
         self.assertIsNone(tool.wip_instance)        # wip committed
         self.assertEqual(len(saved), 1)
         self.assertEqual(saved[0].num_keypoints(), 3)
+
+
+class FrameCacheMemoryTest(unittest.TestCase):
+    def test_append_keeps_frame_out_of_ram(self):
+        tool = FakeKPTool()
+        tool.append_saved_record([], image_id=1, file_name="a.jpg")
+        record = tool.saved_records[-1]
+        self.assertIsNone(record["frame"])
+        self.assertIsNone(record["rectified_frame"])
+
+    def test_update_keeps_frame_out_of_ram(self):
+        tool = FakeKPTool()
+        tool.append_saved_record([], image_id=1, file_name="a.jpg")
+        tool.update_saved_record(0, [], image_id=1, file_name="a.jpg")
+        self.assertIsNone(tool.saved_records[0]["frame"])
+
+    def test_load_record_frame_reads_disk_without_caching(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = FakeKPTool()
+            tool.output_images_dir = Path(tmp)
+            cv2.imwrite(str(Path(tmp) / "a.jpg"), np.zeros((4, 4, 3), dtype=np.uint8))
+            record = {"file_name": "a.jpg", "frame": None}
+            loaded = tool._load_record_frame(record)
+            self.assertIsNotNone(loaded)            # loaded from disk
+            self.assertIsNone(record["frame"])      # not cached back into RAM
 
 
 if __name__ == "__main__":

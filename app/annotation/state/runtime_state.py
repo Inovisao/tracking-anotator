@@ -3,6 +3,8 @@ from app.annotation.shared import *
 
 class RuntimeStateMixin:
     def _initialize_runtime_state(self):
+        from tracker.byte_tracker import BYTETracker  # deferred: pulls torch (~4s)
+        from app.tracking import MultiClassByteTracker
         self.default_tracker_args = ByteTrackerArgs()
         self.frame_rate = 30
         self.bytetracker = BYTETracker(self.default_tracker_args, frame_rate=self.frame_rate)
