@@ -54,12 +54,14 @@ class KPMouseEventsMixin:
         self.update_display(refresh_status=True)
 
     def on_escape(self):
-        """Esc cancels the instance being drawn; only quits when nothing is in progress."""
+        """Esc only aborts the current operation — it never closes the application."""
         if self.wip_instance is not None:
             self.cancel_wip_instance()
             self.info_var.set("Instancia cancelada.")
-            return
-        self.on_quit()
+        elif self.selected_instance is not None:
+            self.selected_instance = None
+            self.selected_kp = None
+            self.update_display(refresh_status=True)
 
     def cycle_next_visibility(self):
         order = [V_VISIBLE, V_HIDDEN, V_ABSENT]

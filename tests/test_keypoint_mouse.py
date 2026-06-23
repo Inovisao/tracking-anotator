@@ -57,10 +57,19 @@ class EscapeTest(unittest.TestCase):
         self.assertIsNone(tool.wip_instance)
         self.assertFalse(tool.quit_called)
 
-    def test_escape_quits_when_idle(self):
+    def test_escape_never_quits_when_idle(self):
         tool = FakeKPTool()
         tool.on_escape()
-        self.assertTrue(tool.quit_called)
+        self.assertFalse(tool.quit_called)
+
+    def test_escape_clears_selection(self):
+        tool = FakeKPTool()
+        tool.selected_instance = 0
+        tool.selected_kp = 1
+        tool.on_escape()
+        self.assertIsNone(tool.selected_instance)
+        self.assertIsNone(tool.selected_kp)
+        self.assertFalse(tool.quit_called)
 
 
 class VisibilityAndUndoTest(unittest.TestCase):
