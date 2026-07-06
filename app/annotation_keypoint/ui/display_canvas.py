@@ -64,7 +64,9 @@ class KPDisplayCanvasMixin:
             interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
             resized = cv2.resize(crop, (out_w, out_h), interpolation=interp)
             rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-            self.tk_image = ImageTk.PhotoImage(image=Image.fromarray(rgb))
+            # master pins the image to this window's interpreter (avoids stale
+            # default-root binding from the splash/wizard Tk roots).
+            self.tk_image = ImageTk.PhotoImage(image=Image.fromarray(rgb), master=self.window)
             place_x = int(round(self.offset_x + ox0 * scale))
             place_y = int(round(self.offset_y + oy0 * scale))
             self.canvas_image_id = self.canvas.create_image(place_x, place_y, anchor=tk.NW, image=self.tk_image)

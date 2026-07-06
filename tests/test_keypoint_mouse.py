@@ -1,6 +1,6 @@
 import unittest
 
-from app.annotation_keypoint.geometry.keypoint import V_ABSENT, V_HIDDEN, V_VISIBLE
+from app.annotation_keypoint.geometry.keypoint import V_ABSENT, V_HIDDEN, V_VISIBLE, KeypointInstance
 from _keypoint_harness import Event, FakeKPTool
 
 
@@ -99,6 +99,61 @@ class VisibilityAndUndoTest(unittest.TestCase):
         self.assertEqual(len(tool.wip_instance.keypoints), 1)
         tool.undo_last_point()
         self.assertIsNone(tool.wip_instance)  # cancelled when last point removed
+
+
+class EditVisibilityTest(unittest.TestCase):
+    def _tool_with_point(self):
+        tool = FakeKPTool()
+        tool.kp_instances = [KeypointInstance(category_id=1, keypoints=[[50, 50, V_VISIBLE]])]
+        return tool
+
+    def test_right_click_toggles_visible_and_occluded(self):
+        tool = self._tool_with_point()
+        tool.on_right_click(Event(50, 50))
+        self.assertEqual(tool.kp_instances[0].keypoints[0][2], V_HIDDEN)
+        tool.on_right_click(Event(50, 50))
+        self.assertEqual(tool.kp_instances[0].keypoints[0][2], V_VISIBLE)
+
+    def test_right_click_misses_when_no_keypoint(self):
+        tool = self._tool_with_point()
+        tool.on_right_click(Event(300, 300))  # far away — no change
+        self.assertEqual(tool.kp_instances[0].keypoints[0][2], V_VISIBLE)
+
+    def test_cycle_on_selected_point_toggles_visible_occluded(self):
+        tool = self._tool_with_point()
+        tool.selected_instance = 0
+        tool.selected_kp = 0
+        tool.cycle_next_visibility()
+        self.assertEqual(tool.kp_instances[0].keypoints[0][2], V_HIDDEN)
+        tool.cycle_next_visibility()
+        self.assertEqual(tool.kp_instances[0].keypoints[0][2], V_VISIBLE)  # never goes absent
+
+    def test_sidebar_button_toggles_selected_point(self):
+        tool = self._tool_with_point()
+        tool.selected_instance = 0
+        tool.selected_kp = 0
+        tool.toggle_edit_id_mode()  # repurposed sidebar "Editar ID" button
+        self.assertEqual(tool.kp_instances[0].keypoints[0][2], V_HIDDEN)
+
+    def test_change_label_font_clamps(self):
+        tool = self._tool_with_point()
+        self.assertEqual(tool.kp_label_font_size, 9)
+        tool.change_label_font(3)
+        self.assertEqual(tool.kp_label_font_size, 12)
+        for _ in range(40):
+            tool.change_label_font(1)
+        self.assertEqual(tool.kp_label_font_size, 28)   # upper clamp
+        for _ in range(40):
+            tool.change_label_font(-1)
+        self.assertEqual(tool.kp_label_font_size, 6)    # lower clamp
+
+    def test_cycle_without_selection_changes_next_visibility(self):
+        tool = self._tool_with_point()
+        self.assertEqual(tool.next_visibility, V_VISIBLE)
+        tool.cycle_next_visibility()
+        self.assertEqual(tool.next_visibility, V_HIDDEN)
+        # the existing point is untouched
+        self.assertEqual(tool.kp_instances[0].keypoints[0][2], V_VISIBLE)
 
 
 if __name__ == "__main__":

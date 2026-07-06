@@ -131,7 +131,7 @@ class DisplayCanvasMixin:
     ):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_image = Image.fromarray(rgb_frame)
-        self.tk_image = ImageTk.PhotoImage(image=pil_image)
+        self.tk_image = ImageTk.PhotoImage(image=pil_image, master=self.window)
 
         self.canvas.delete("all")
         canvas_w = min(max_canvas_w, disp_w + CANVAS_PADDING_PX)

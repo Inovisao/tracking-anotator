@@ -63,11 +63,61 @@ class KPMouseEventsMixin:
             self.selected_kp = None
             self.update_display(refresh_status=True)
 
-    def cycle_next_visibility(self):
+    @staticmethod
+    def _next_visibility(value: int) -> int:
         order = [V_VISIBLE, V_HIDDEN, V_ABSENT]
-        self.next_visibility = order[(order.index(self.next_visibility) + 1) % len(order)]
+        try:
+            return order[(order.index(value) + 1) % len(order)]
+        except ValueError:
+            return V_VISIBLE
+
+    def cycle_next_visibility(self):
+        # With a keypoint selected, toggle THAT point's visibility (2<->1) so it
+        # never vanishes; otherwise set the visibility for the next point placed.
+        if self.get_selected_detection() is not None and self.selected_kp is not None:
+            self.toggle_selected_visibility()
+            return
+        self.next_visibility = self._next_visibility(self.next_visibility)
         self.info_var.set(f"Visibilidade do proximo ponto: {self.next_visibility}")
         self.update_status()
+
+    def toggle_selected_visibility(self):
+        """Toggle the selected keypoint between visible (2) and occluded (1)."""
+        det = self.get_selected_detection()
+        if det is None or self.selected_kp is None or not (0 <= self.selected_kp < len(det.keypoints)):
+            self.info_var.set("Selecione um ponto (S + clique) ou use o clique direito.")
+            self.update_status()
+            return
+        kp = det.keypoints[self.selected_kp]
+        self.push_undo_state("alterar visibilidade")
+        kp[2] = V_HIDDEN if kp[2] == V_VISIBLE else V_VISIBLE
+        self.info_var.set("Ponto oculto (v=1)" if kp[2] == V_HIDDEN else "Ponto visivel (v=2)")
+        self.update_display(refresh_status=True)
+
+    def change_label_font(self, delta: int):
+        """Resize the on-image keypoint labels (clamped 6–28 px)."""
+        self.kp_label_font_size = int(min(28, max(6, self.kp_label_font_size + delta)))
+        self.info_var.set(f"Fonte dos rotulos: {self.kp_label_font_size}px")
+        self.update_display(refresh_status=True)
+
+    def on_right_click(self, event):
+        """Right-click a keypoint to toggle visible (2) <-> occluded (1)."""
+        if self.current_frame is None:
+            return
+        coords = self.canvas_to_image_coords(event.x, event.y)
+        if coords is None:
+            return
+        hit = self.find_instance_at(*coords)
+        if hit is None or hit[1] is None:
+            return
+        idx, kp_idx = hit
+        kp = self.kp_instances[idx].keypoints[kp_idx]
+        self.push_undo_state("alterar visibilidade")
+        kp[2] = V_HIDDEN if kp[2] == V_VISIBLE else V_VISIBLE
+        self.selected_instance, self.selected_kp = idx, kp_idx
+        self.selected_detection = self.get_selected_detection()
+        self.info_var.set("Keypoint -> oculto (v=1)" if kp[2] == V_HIDDEN else "Keypoint -> visivel (v=2)")
+        self.update_display(refresh_status=True)
 
     # ── mouse handlers ────────────────────────────────────────────
     def on_mouse_down(self, event):

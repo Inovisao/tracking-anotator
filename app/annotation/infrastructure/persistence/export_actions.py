@@ -156,7 +156,7 @@ class ExportActionsMixin:
                 steps_done[0] = offset + done_in_format
                 if hasattr(self, "update_export_progress"):
                     pct = int(steps_done[0] * 100 / max(total_steps, 1))
-                    self.window.after(0, lambda p=pct: self.update_export_progress(p))
+                    self._post_to_main(lambda p=pct: self.update_export_progress(p))
 
             yolo_offset = 0
             coco_offset = n_images if "yolo" in config.formats else 0
@@ -184,7 +184,7 @@ class ExportActionsMixin:
                 self.info_var.set(msg)
                 if hasattr(self, "set_export_status"):
                     self.set_export_status(root, parts, cfg)
-            self.window.after(0, _on_success)
+            self._post_to_main(_on_success)
         except InterruptedError:
             print("[INFO] Export cancelled by user.")
         except Exception as exc:  # pylint: disable=broad-except
@@ -194,4 +194,4 @@ class ExportActionsMixin:
                 self.info_var.set(msg)
                 if hasattr(self, "set_export_error"):
                     self.set_export_error(msg)
-            self.window.after(0, _on_error)
+            self._post_to_main(_on_error)

@@ -255,6 +255,7 @@ class KPCocoStorageMixin:
                 self.target_classes = [cat["name"] for cat in self.categories if cat.get("name")]
             if self.target_classes_var is not None:
                 self.target_classes_var.set(", ".join(self.target_classes))
+        self._prune_missing_images()
         self.annotation_id = max((ann.get("id", 0) for ann in self.annotations), default=0) + 1
         self.image_id = max((img.get("id", 0) for img in self.images), default=0) + 1
         print(
@@ -262,3 +263,20 @@ class KPCocoStorageMixin:
             f"anotacoes={len(self.annotations)}, prox_image_id={self.image_id}, "
             f"prox_annotation_id={self.annotation_id}"
         )
+
+    def _prune_missing_images(self):
+        """Drop records whose image file no longer exists on disk (broken state)."""
+        images_dir = self.output_images_dir
+        kept = []
+        removed_ids = set()
+        for img in self.images:
+            file_name = str(img.get("file_name", "")).strip()
+            if file_name and (images_dir / file_name).exists():
+                kept.append(img)
+            else:
+                removed_ids.add(img.get("id"))
+        if not removed_ids:
+            return
+        self.images = kept
+        self.annotations = [a for a in self.annotations if a.get("image_id") not in removed_ids]
+        print(f"[INFO] {len(removed_ids)} imagem(ns) ausente(s) removida(s) do estado keypoint.")

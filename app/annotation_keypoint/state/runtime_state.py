@@ -75,6 +75,7 @@ class KPRuntimeStateMixin:
         self.wip_instance: Optional[KeypointInstance] = None
         self.wip_index = 0
         self.next_visibility = V_VISIBLE
+        self.kp_label_font_size = 9  # on-image label size (adjustable with +/-)
         self.cursor_image_pos: Optional[Tuple[int, int]] = None
         # Aliases so the generic class-service helpers can edit instances.
         self.current_detections: List[KeypointInstance] = []

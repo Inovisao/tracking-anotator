@@ -1,6 +1,5 @@
 from app.annotation_keypoint.shared import *
 
-_LABEL_FONT = ("Helvetica", 9)
 _SEL_COLOR = "#FFD400"
 _WIP_COLOR = "#22D3EE"
 _CLOSE_COLOR = "#22C55E"
@@ -8,6 +7,9 @@ _CLOSE_COLOR = "#22C55E"
 
 class KPDisplayOverlaysMixin:
     """Draws keypoints as lightweight Tk canvas items (no image re-rasterization)."""
+
+    def _label_font(self):
+        return ("Helvetica", int(getattr(self, "kp_label_font_size", 9)))
 
     def _category_skeleton(self, category_id: int) -> list:
         for cat in self.categories:
@@ -57,8 +59,9 @@ class KPDisplayOverlaysMixin:
             r = 6 if kp_idx == sel_kp else 4
             fill = "" if kp[2] == V_HIDDEN else color
             self.canvas.create_oval(cx - r, cy - r, cx + r, cy + r, outline=color, fill=fill, width=2, tags="kp_overlay")
-            label = names[kp_idx] if kp_idx < len(names) else str(kp_idx + 1)
-            self.canvas.create_text(cx + 7, cy - 7, text=label, fill=color, anchor="w", font=_LABEL_FONT, tags="kp_overlay")
+            name = names[kp_idx] if kp_idx < len(names) else str(kp_idx + 1)
+            label = f"{name} (v{int(kp[2])})"
+            self.canvas.create_text(cx + 7, cy - 7, text=label, fill=color, anchor="w", font=self._label_font(), tags="kp_overlay")
 
     def _overlay_wip_preview(self, color_by_id):
         if self.cursor_image_pos is None:
@@ -74,12 +77,12 @@ class KPDisplayOverlaysMixin:
             fx, fy = self.image_to_canvas_coords(placed[0][0], placed[0][1])
             self.canvas.create_oval(fx - 9, fy - 9, fx + 9, fy + 9, outline=_CLOSE_COLOR, width=2, tags="kp_overlay")
             self.canvas.create_text(cur[0] + 8, cur[1] + 14, text="fechar", fill=_CLOSE_COLOR, anchor="w",
-                                    font=_LABEL_FONT, tags="kp_overlay")
+                                    font=self._label_font(), tags="kp_overlay")
             return
         total = len(names) if names else "?"
         nxt = names[self.wip_index] if self.wip_index < len(names) else str(self.wip_index + 1)
         self.canvas.create_text(cur[0] + 8, cur[1] + 14, text=f"-> {nxt} [{self.wip_index + 1}/{total}]",
-                                fill=_WIP_COLOR, anchor="w", font=_LABEL_FONT, tags="kp_overlay")
+                                fill=_WIP_COLOR, anchor="w", font=self._label_font(), tags="kp_overlay")
 
     def _draw_roi_overlay_on_canvas(self):
         if not self.roi_points:

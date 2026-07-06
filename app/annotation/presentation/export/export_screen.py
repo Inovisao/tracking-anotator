@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import queue
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -288,11 +289,34 @@ class ExportScreenMixin:
         self._export_status_label.config(fg=COLORS["muted"])
         self._export_confirm_btn.config(state=tk.DISABLED)
         self._start_export_progress()
-        threading.Thread(
+        # All Tk updates from the worker go through a queue drained on the main
+        # thread — calling Tcl (e.g. window.after) from the worker thread crashes
+        # with "Tcl_AsyncDelete: async handler deleted by the wrong thread".
+        self._export_main_queue = queue.Queue()
+        self._export_running = True
+        self._export_cancel_event = threading.Event()
+        self.window.after(50, self._drain_export_queue)
+        self._export_thread = threading.Thread(
             target=self._run_export_thread,
             args=(config,),
             daemon=True,
-        ).start()
+        )
+        self._export_thread.start()
+
+    def _post_to_main(self, fn):
+        """Schedule a callable to run on the main (Tk) thread. Safe from workers."""
+        self._export_main_queue.put(fn)
+
+    def _drain_export_queue(self):
+        try:
+            while True:
+                self._export_main_queue.get_nowait()()
+        except queue.Empty:
+            pass
+        except Exception:  # pylint: disable=broad-except
+            pass
+        if getattr(self, "_export_running", False) or not self._export_main_queue.empty():
+            self.window.after(50, self._drain_export_queue)
 
     def _cancel_or_close_export(self):
         cancel_event = getattr(self, "_export_cancel_event", None)
@@ -309,9 +333,9 @@ class ExportScreenMixin:
         except Exception as exc:  # pylint: disable=broad-except
             msg = f"Falha ao exportar: {exc}"
             print(f"[ERRO] {msg}")
-            self.window.after(0, lambda m=msg: self._show_export_thread_error(m))
+            self._post_to_main(lambda m=msg: self._show_export_thread_error(m))
         finally:
-            self.window.after(0, self._on_export_thread_done)
+            self._post_to_main(self._on_export_thread_done)
 
     def _show_export_thread_error(self, message: str):
         try:
@@ -332,6 +356,7 @@ class ExportScreenMixin:
             pass  # widget destroyed before export finished (e.g. user navigated away)
 
     def _on_export_thread_done(self):
+        self._export_running = False  # lets the queue poller stop after draining
         cancelled = getattr(self, "_export_cancel_event", None) and self._export_cancel_event.is_set()
         self._export_cancel_event = None
         if cancelled:

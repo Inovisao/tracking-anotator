@@ -88,16 +88,47 @@ class LifecycleMixin:
             self.info_var.set(message)
         except Exception:  # pylint: disable=broad-except
             pass
+        self._shutdown_export_thread()
         self._destroy_window()
 
+    def _shutdown_export_thread(self):
+        """Stop any background export before tearing down Tk.
+
+        A daemon export thread alive during interpreter shutdown is a classic
+        cause of 'Tcl_AsyncDelete: async handler deleted by the wrong thread'.
+        """
+        self._export_running = False
+        event = getattr(self, "_export_cancel_event", None)
+        if event is not None:
+            event.set()
+        thread = getattr(self, "_export_thread", None)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=5)
+
     def _destroy_window(self):
-        try:
-            self.window.after(500, self.window.destroy)
-        except Exception:  # pylint: disable=broad-except
+        # Release Tk-owned images while the interpreter is still alive, otherwise
+        # PhotoImage finalizers run after teardown and abort with Tcl_AsyncDelete.
+        pending = getattr(self, "_resize_after_id", None)
+        if pending is not None:
             try:
-                self.window.destroy()
-            except Exception:
+                self.window.after_cancel(pending)
+            except Exception:  # pylint: disable=broad-except
                 pass
+            self._resize_after_id = None
+        try:
+            if getattr(self, "canvas", None) is not None:
+                self.canvas.delete("all")
+        except Exception:  # pylint: disable=broad-except
+            pass
+        self.tk_image = None
+        try:
+            self.window.quit()
+        except Exception:  # pylint: disable=broad-except
+            pass
+        try:
+            self.window.destroy()
+        except Exception:  # pylint: disable=broad-except
+            pass
 
     def run(self):
         self.window.mainloop()

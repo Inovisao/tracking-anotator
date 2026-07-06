@@ -55,6 +55,25 @@ class ResetAndSaveTest(unittest.TestCase):
         self.assertEqual(saved[0].num_keypoints(), 3)
 
 
+class PruneMissingImagesTest(unittest.TestCase):
+    def test_drops_records_whose_file_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = FakeKPTool()
+            tool.output_images_dir = Path(tmp)
+            cv2.imwrite(str(Path(tmp) / "ok.jpg"), np.zeros((4, 4, 3), dtype=np.uint8))
+            tool.images = [
+                {"id": 1, "file_name": "ok.jpg"},
+                {"id": 2, "file_name": "gone.jpg"},
+            ]
+            tool.annotations = [
+                {"id": 1, "image_id": 1, "category_id": 1, "keypoints": [1, 1, 2]},
+                {"id": 2, "image_id": 2, "category_id": 1, "keypoints": [2, 2, 2]},
+            ]
+            tool._prune_missing_images()
+            self.assertEqual([im["id"] for im in tool.images], [1])
+            self.assertEqual([a["image_id"] for a in tool.annotations], [1])
+
+
 class FrameCacheMemoryTest(unittest.TestCase):
     def test_append_keeps_frame_out_of_ram(self):
         tool = FakeKPTool()

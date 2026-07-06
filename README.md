@@ -187,13 +187,17 @@ No wizard, ao escolher o modo **Keypoint detection**, defina por classe a lista 
 
 Visibilidade (convenção COCO): `0` ausente, `1` oculto/anotável, `2` visível.
 
-| Tecla | Ação (modo keypoint) |
+| Tecla / Mouse | Ação (modo keypoint) |
 |-------|----------------------|
 | `F` | Finalizar instância atual |
-| `X` | Marcar o ponto atual como ausente (`v=0`) |
-| `C` | Alternar a visibilidade do próximo ponto (`2 → 1 → 0`) |
+| `X` | Marcar o ponto atual como ausente (`v=0`) — durante a colocação |
+| `C` | Com um ponto **selecionado**, cicla a visibilidade **desse** ponto (`2 → 1 → 0`); sem seleção, define a visibilidade do **próximo** ponto a colocar |
+| **Clique direito** | Sobre um ponto já anotado: alterna **visível (2) ↔ oculto (1)** |
 | `Backspace` | Remover o último ponto (ou cancelar a instância em construção) |
 | `S` | Selecionar/mover pontos ou instâncias |
+| `Esc` | Cancela a operação atual (instância em construção ou seleção) — não fecha o app |
+
+Para corrigir a visibilidade de pontos **já anotados** (ex.: marcar como oclusos os que estão na imagem mas encobertos): clique direito sobre o ponto para alternar `2 ↔ 1`, ou selecione com `S` e use `C` para passar por todos os estados. Pontos oclusos (`v=1`) aparecem como **círculo vazado**.
 
 ### Exportação
 

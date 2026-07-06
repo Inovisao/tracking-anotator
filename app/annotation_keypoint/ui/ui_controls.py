@@ -12,6 +12,11 @@ class KPUIControlsMixin(KeybindMixin):
         self.window.bind("x", lambda e: self._run_shortcut(e, self.skip_point))
         self.window.bind("c", lambda e: self._run_shortcut(e, self.cycle_next_visibility))
         self.window.bind("<BackSpace>", lambda e: self._run_shortcut(e, self.undo_last_point))
+        # Label font size on the image
+        for key in ("<plus>", "<equal>", "<KP_Add>"):
+            self.window.bind(key, lambda e: self._run_shortcut(e, lambda: self.change_label_font(1)))
+        for key in ("<minus>", "<KP_Subtract>"):
+            self.window.bind(key, lambda e: self._run_shortcut(e, lambda: self.change_label_font(-1)))
         self.init_keybind_service()
 
     @staticmethod
@@ -32,6 +37,7 @@ class KPUIControlsMixin(KeybindMixin):
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
+        self.canvas.bind("<ButtonPress-3>", self.on_right_click)  # toggle keypoint visibility
         self.canvas.bind("<Motion>", self.on_mouse_move)
         self.canvas.bind("<ButtonPress-2>", self.on_pan_start)
         self.canvas.bind("<B2-Motion>", self.on_pan_drag)
@@ -52,7 +58,7 @@ class KPUIControlsMixin(KeybindMixin):
         self.selection_button.config(state=tk.NORMAL)
         self.pan_button.config(state=tk.NORMAL)
         self.apply_id_button.config(state=tk.DISABLED)
-        self.edit_id_button.config(state=tk.DISABLED)
+        self.edit_id_button.config(state=tk.NORMAL)  # repurposed: toggle point visibility
         self.export_dataset_button.config(state=tk.NORMAL)
 
     def disable_controls_for_roi(self):
@@ -86,4 +92,4 @@ class KPUIControlsMixin(KeybindMixin):
 
     def update_edit_id_button(self):
         if hasattr(self, "edit_id_button"):
-            self._config_if_changed(self.edit_id_button, text="Editar ID indisponivel")
+            self._config_if_changed(self.edit_id_button, text="Visivel/Oculto do ponto  (C)")

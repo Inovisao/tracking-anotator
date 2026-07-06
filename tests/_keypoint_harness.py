@@ -8,6 +8,7 @@ from app.annotation_keypoint.detection.review_nav import KPReviewNavMixin
 from app.annotation_keypoint.detection.selection_edit import KPSelectionEditMixin
 from app.annotation_keypoint.infrastructure.persistence.coco_storage import KPCocoStorageMixin
 from app.annotation_keypoint.state.runtime_state import KPRuntimeStateMixin
+from app.annotation_keypoint.ui.mode_toggles import KPModeTogglesMixin
 from app.annotation_keypoint.ui.mouse_events import KPMouseEventsMixin
 
 
@@ -25,6 +26,7 @@ class _Var:
 
 
 class FakeKPTool(
+    KPModeTogglesMixin,
     KPMouseEventsMixin,
     KPSelectionEditMixin,
     KPReviewNavMixin,

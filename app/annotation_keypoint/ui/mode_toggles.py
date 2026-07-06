@@ -15,4 +15,6 @@ class KPModeTogglesMixin(ModeTogglesMixin):
             self.selected_kp = None
 
     def toggle_edit_id_mode(self):
-        print("[INFO] O modo keypoint nao usa edicao de ID.")
+        # Sidebar "Editar ID" button is repurposed in keypoint mode as the
+        # visible control to flip the selected point between visible and occluded.
+        self.toggle_selected_visibility()
