@@ -51,7 +51,8 @@ class ExportActionsMixin:
 
     def load_export_payload_from_state(self) -> dict:
         self.autosave_current_frame(reason="exportar dataset")
-        self.write_annotations()
+        # Blocking: the payload is read back from disk immediately below.
+        self.write_annotations(blocking=True)
         if not self.annotations_path.exists():
             raise FileNotFoundError(f"Annotation state not found: {self.annotations_path}")
         payload = load_json(self.annotations_path)

@@ -887,10 +887,14 @@ class StartupWizard:
 
     def browse_annotation_state(self):
         is_classification = AnnotationTaskMode(self.mode_var.get()) is AnnotationTaskMode.CLASSIFICATION
-        initial = self.selected_state_path.parent if self.selected_state_path else Path.cwd()
+        # Falls back to the state picked in the previous session so the user does not have
+        # to navigate from scratch every time.
+        reference = self.selected_state_path or self.cache.state_path
+        initial = reference.parent if reference else Path.cwd()
         path = filedialog.askopenfilename(
             title=f"Selecione {CLASSIFICATION_STATE_FILE_NAME}" if is_classification else "Selecione annotations.coco.json",
             initialdir=str(initial if initial.exists() else Path.cwd()),
+            initialfile=(reference.name if reference and reference.exists() else ""),
             filetypes=[
                 (
                     "Estado de classificacao" if is_classification else "COCO annotations",
@@ -1495,5 +1499,11 @@ class StartupWizard:
         except ValueError as exc:
             messagebox.showerror("Configuracao invalida", str(exc))
             return
-        save_startup_cache(data_root=data_root, weights_paths=weights_paths, mode=mode, parent_dir=parent_dir)
+        save_startup_cache(
+            data_root=data_root,
+            weights_paths=weights_paths,
+            mode=mode,
+            parent_dir=parent_dir,
+            state_path=self.selected_state_path,
+        )
         self.root.destroy()

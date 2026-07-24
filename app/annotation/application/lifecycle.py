@@ -74,7 +74,8 @@ class LifecycleMixin:
                     pass
         try:
             if self.images or self.annotations:
-                self.write_annotations()
+                # Blocking: the backup copies the file right after, so it must be complete.
+                self.write_annotations(blocking=True)
                 self.backup_annotations_file()
         except Exception as exc:  # pylint: disable=broad-except
             print(f"[ERRO] Falha ao salvar anotacoes no encerramento: {exc}")
@@ -89,6 +90,7 @@ class LifecycleMixin:
         except Exception:  # pylint: disable=broad-except
             pass
         self._shutdown_export_thread()
+        self.flush_pending_annotations()
         self._destroy_window()
 
     def _shutdown_export_thread(self):

@@ -179,24 +179,57 @@ class ClassificationUIMixin:
         return button
 
     def _redraw_class_buttons(self):
+        """Refresh the class buttons.
+
+        The buttons are persistent widgets: navigating between images only changes the
+        counters, so rebuilding the whole panel every time made each image change cost
+        proportionally to the number of classes. Widgets are only created/destroyed when
+        the class list itself changes.
+        """
+        counts = self._counts_by_class()
+        widgets = getattr(self, "_class_button_widgets", None)
+        if widgets is None or self._class_button_names != list(self.classes):
+            self._rebuild_class_button_widgets()
+            widgets = self._class_button_widgets
+
+        remove_state = tk.NORMAL if len(self.classes) > 1 else tk.DISABLED
+        for idx, class_name in enumerate(self.classes):
+            entry = widgets.get(class_name)
+            if entry is None:
+                continue
+            label = f"{idx + 1}  {class_name}  ({counts.get(class_name, 0)})"
+            if entry["label"] != label:
+                entry["button"].config(text=label)
+                entry["label"] = label
+            if entry["remove_state"] != remove_state:
+                entry["remove"].config(state=remove_state)
+                entry["remove_state"] = remove_state
+
+    def _rebuild_class_button_widgets(self):
+        """Create the per-class rows. Only called when the class list changes."""
         for child in self.class_panel.winfo_children():
             child.destroy()
-        counts = self._counts_by_class()
-        for idx, class_name in enumerate(self.classes):
+        self._class_button_widgets = {}
+        self._class_button_names = list(self.classes)
+        for class_name in self.classes:
             row = tk.Frame(self.class_panel, bg=self.colors["panel"])
             row.pack(fill=tk.X, pady=(0, self.spacing["sm"]))
             row.columnconfigure(0, weight=1)
-            label = f"{idx + 1}  {class_name}  ({counts.get(class_name, 0)})"
-            self._button(
+            button = self._button(
                 row,
-                label,
+                "",
                 lambda name=class_name: self.on_class_selected(name),
                 primary=True,
-            ).grid(row=0, column=0, sticky="ew", padx=(0, self.spacing["xs"]))
-            remove_state = tk.NORMAL if len(self.classes) > 1 else tk.DISABLED
+            )
+            button.grid(row=0, column=0, sticky="ew", padx=(0, self.spacing["xs"]))
             remove_btn = self._button(row, "Remover", lambda name=class_name: self.on_remove_class(name), danger=True)
-            remove_btn.config(state=remove_state)
             remove_btn.grid(row=0, column=1, sticky="e")
+            self._class_button_widgets[class_name] = {
+                "button": button,
+                "remove": remove_btn,
+                "label": None,
+                "remove_state": None,
+            }
 
     def _bind_shortcuts(self):
         for idx in range(1, 10):

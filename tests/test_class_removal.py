@@ -64,7 +64,7 @@ class ClassRemovalTest(unittest.TestCase):
             self.display_calls = 0
             self.status_calls = 0
 
-        def write_annotations(self):
+        def write_annotations(self, *, blocking: bool = False):
             self.write_calls += 1
 
         def sync_export_metadata(self):

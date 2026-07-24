@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -316,7 +317,12 @@ def write_state(
             for record in records
         ],
     }
-    Path(state_path).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    # Written on every classified image; compact output keeps the cost flat as the
+    # record list grows. Read back via load_state, never by hand.
+    state_path = Path(state_path)
+    tmp_path = state_path.with_name(f"{state_path.name}.tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    os.replace(tmp_path, state_path)
 
 
 def classify_image_source(

@@ -217,7 +217,7 @@ class WorkflowActionsTest(unittest.TestCase):
                 )
                 return 7, "frame_00007.jpg"
 
-            def write_annotations(self):
+            def write_annotations(self, *, blocking: bool = False):
                 self.write_calls += 1
 
             def append_saved_record(self, detections, image_id, file_name):
@@ -336,8 +336,9 @@ class ExportOutputDatasetPathTest(unittest.TestCase):
                 def autosave_current_frame(self, *, reason=""):
                     self.autosave_reason = reason
 
-                def write_annotations(self):
+                def write_annotations(self, *, blocking: bool = False):
                     self.write_called = True
+                    self.write_blocking = blocking
 
             actions = DummyExportActions()
             actions.annotations_path = annotations_path

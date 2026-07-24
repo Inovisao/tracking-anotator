@@ -1,9 +1,10 @@
 """Read/write operations for the COCO payload in memory and on disk."""
 
 from app.annotation.shared import *
+from app.annotation.infrastructure.persistence.async_writer import AnnotationsAsyncWriterMixin
 
 
-class CocoStorageMixin:
+class CocoStorageMixin(AnnotationsAsyncWriterMixin):
     # ── Index caches — invalidated whenever self.images or self.annotations changes ──
     _image_index: Optional[Dict[str, dict]] = None          # file_name → image record
     _annotation_index: Optional[Dict[int, List[dict]]] = None  # image_id → annotations
@@ -156,13 +157,22 @@ class CocoStorageMixin:
             self.frames_saved_in_current_video += 1
         return image_id, file_name
 
-    def write_annotations(self):
+    def write_annotations(self, *, blocking: bool = False):
+        """Persist the COCO payload.
+
+        The payload is built here, on the caller's (UI) thread, so the snapshot is
+        consistent with in-memory state. Only serialization and disk I/O are handed to a
+        background writer — those grow linearly with the dataset and would otherwise
+        freeze the UI on every frame change. Pass blocking=True to wait for the write
+        (shutdown, export), where the file must be complete before moving on.
+        """
         self.update_annotation_state()
         data = self.build_coco_payload()
         self.annotations_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.annotations_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-        print(f"[INFO] Anotacoes atualizadas em {self.annotations_path}")
+        if blocking:
+            self._flush_annotations(data)
+            return
+        self._queue_annotations_write(data)
 
     def backup_annotations_file(self):
         if not self.annotations_path.exists():

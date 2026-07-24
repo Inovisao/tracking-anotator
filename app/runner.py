@@ -1,7 +1,31 @@
+import os
 import sys
 
 
+def _disable_x_input_method():
+    """Detach the X input method (ibus) before Tk connects to the display.
+
+    Tk asks the input method to create an XIC for every widget it maps. Against ibus
+    that handshake blocks on a synchronous round-trip, costing ~85 ms per widget and
+    turning a normal screen into seconds of frozen UI (measured: 2.9 s for a sidebar
+    that takes 136 ms without it).
+
+    Only affects how composed characters reach the app; layouts that produce accents
+    through XKB (br, us-intl) keep working. Set INOLABEL_KEEP_IM=1 to opt out if you
+    depend on ibus composition inside the annotation window.
+    """
+    if os.environ.get("INOLABEL_KEEP_IM"):
+        return
+    if not os.environ.get("XMODIFIERS", "").startswith("@im="):
+        return
+    if "tkinter" in sys.modules:  # too late: Tk already read the setting
+        return
+    os.environ["XMODIFIERS"] = "@im=none"
+
+
 def main() -> int:
+    _disable_x_input_method()
+
     from app.ui.startup.splash import show_splash
     show_splash()
 
