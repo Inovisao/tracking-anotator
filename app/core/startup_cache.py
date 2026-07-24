@@ -23,6 +23,7 @@ class StartupCache:
     weights_paths: Tuple[Path, ...] = ()
     mode: Optional[AnnotationTaskMode] = None
     parent_dir: Optional[Path] = None  # last used project parent directory
+    state_path: Optional[Path] = None  # last state file picked manually
 
     @property
     def weights_path(self) -> Optional[Path]:
@@ -59,6 +60,7 @@ def load_startup_cache(path: Path = CACHE_PATH) -> StartupCache:
         weights_paths=weights_paths,
         mode=mode,
         parent_dir=_optional_path(data.get("parent_dir")),
+        state_path=_optional_path(data.get("state_path")),
     )
 
 
@@ -69,6 +71,7 @@ def save_startup_cache(
     weights_path: Optional[Path] = None,
     mode: AnnotationTaskMode,
     parent_dir: Optional[Path] = None,
+    state_path: Optional[Path] = None,
     path: Path = CACHE_PATH,
 ):
     """Persist startup choices locally."""
@@ -83,6 +86,8 @@ def save_startup_cache(
     }
     if parent_dir is not None:
         payload["parent_dir"] = str(Path(parent_dir).expanduser())
+    if state_path is not None:
+        payload["state_path"] = str(Path(state_path).expanduser())
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 

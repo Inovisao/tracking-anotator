@@ -30,7 +30,7 @@ class ClassificationNavigationMixin:
         source_path = self.images[self.current_index]
         image_path = self._display_path_for_source(source_path)
         try:
-            self.current_image = Image.open(image_path).convert("RGB")
+            self.current_image = self._open_for_display(image_path)
         except Exception as exc:  # pylint: disable=broad-except
             self.info_var.set(f"Falha ao abrir {image_path.name}: {exc}")
             self.current_index += 1
@@ -48,6 +48,24 @@ class ClassificationNavigationMixin:
         self._update_status()
         self._render_image()
         self._focus_navigation_surface()
+
+    def _open_for_display(self, image_path: Path) -> Image.Image:
+        """Decode an image for on-screen review only.
+
+        draft() lets the JPEG decoder work at a reduced scale, which is much cheaper than
+        decoding at full resolution just to shrink it right after. It is a no-op for
+        formats that do not support it, and never touches the file on disk — the
+        classification state stores paths, so the originals are untouched.
+        """
+        image = Image.open(image_path)
+        try:
+            canvas_w = max(1, self.canvas.winfo_width())
+            canvas_h = max(1, self.canvas.winfo_height())
+            if canvas_w > 2 and canvas_h > 2:
+                image.draft("RGB", (canvas_w, canvas_h))
+        except Exception:  # pylint: disable=broad-except
+            pass
+        return image.convert("RGB")
 
     def _display_path_for_source(self, source_path: Path) -> Path:
         if Path(source_path).exists():
@@ -68,13 +86,20 @@ class ClassificationNavigationMixin:
                 self.root.after(50, self._retry_render_image)
             return
         self._render_retry_scheduled = False
-        image = self.current_image.copy()
         target_w = max(1, canvas_w - 24)
         target_h = max(1, canvas_h - 24)
+        # The <Configure> binding fires on every canvas event, not just real resizes.
+        # Rescaling a full-resolution image with LANCZOS costs 50-230 ms, so skip the
+        # work when the same image is already drawn at this exact size.
+        signature = (id(self.current_image), target_w, target_h)
+        if signature == getattr(self, "_rendered_signature", None):
+            return
+        image = self.current_image.copy()
         image.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
         self._photo = ImageTk.PhotoImage(image)
         self.canvas.delete("all")
         self.canvas.create_image(canvas_w // 2, canvas_h // 2, image=self._photo, anchor=tk.CENTER)
+        self._rendered_signature = signature
 
     def _retry_render_image(self):
         self._render_retry_scheduled = False

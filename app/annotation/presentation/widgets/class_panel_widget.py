@@ -17,10 +17,17 @@ class ClassPanelWidgetMixin:
         for det in list(getattr(self, "current_detections", [])) + list(getattr(self, "manual_detections", [])):
             frame_counts[det.category_id] = frame_counts.get(det.category_id, 0) + 1
 
+        # Register up front so the snapshot sees the same ids/colors the rebuild will use —
+        # otherwise a class registered only during the rebuild changes the snapshot afterwards
+        # and triggers a second rebuild on the next call.
+        category_ids = [self.register_category(class_name) for class_name in self.target_classes]
         color_by_id = self.category_color_by_id()
-        structure_snapshot = (
-            tuple(self.target_classes),
-            tuple((cat.get("id"), cat.get("name"), cat.get("color")) for cat in self.categories),
+        # Only what the panel actually draws: one tag per target class, with its color.
+        # Categories registered by the model outside target_classes never become tags,
+        # so they must not invalidate the structure and force a full rebuild.
+        structure_snapshot = tuple(
+            (class_name, color_by_id.get(category_id, COLORS["primary"]))
+            for class_name, category_id in zip(self.target_classes, category_ids)
         )
         dynamic_snapshot = (
             active_name,
@@ -46,8 +53,7 @@ class ClassPanelWidgetMixin:
         for child in panel.winfo_children():
             child.destroy()
 
-        for idx, class_name in enumerate(self.target_classes):
-            category_id = self.register_category(class_name)
+        for idx, (class_name, category_id) in enumerate(zip(self.target_classes, category_ids)):
             cat_color = color_by_id.get(category_id, COLORS["primary"])
             is_active = class_name == active_name
             count = frame_counts.get(category_id, 0)

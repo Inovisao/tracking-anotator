@@ -1,7 +1,10 @@
 from app.annotation_obb.shared import *
+from app.annotation.infrastructure.persistence.async_writer import AnnotationsAsyncWriterMixin
 
 
-class OBBCocoStorageMixin:
+class OBBCocoStorageMixin(AnnotationsAsyncWriterMixin):
+    _annotations_log_label = "Anotacoes OBB"
+
     def detections_to_save(self) -> List[OBBDetection]:
         return list(self.current_obb_detections) + list(self.manual_obb_detections)
 
@@ -147,13 +150,15 @@ class OBBCocoStorageMixin:
             self.frames_saved_in_current_video += 1
         return image_id, file_name
 
-    def write_annotations(self):
+    def write_annotations(self, *, blocking: bool = False):
+        """Persist the COCO OBB payload — see AnnotationsAsyncWriterMixin for the rationale."""
         self.update_annotation_state()
         data = self.build_coco_payload()
         self.annotations_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.annotations_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-        print(f"[INFO] Anotacoes OBB atualizadas em {self.annotations_path}")
+        if blocking:
+            self._flush_annotations(data)
+            return
+        self._queue_annotations_write(data)
 
     def backup_annotations_file(self):
         if not self.annotations_path.exists():
